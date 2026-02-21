@@ -1,11 +1,6 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, JetBrains_Mono, Geist } from "next/font/google";
+import { JetBrains_Mono, Geist } from "next/font/google";
 import "./globals.css";
-
-const display = Bricolage_Grotesque({
-  variable: "--font-display",
-  subsets: ["latin"],
-});
 
 const code = JetBrains_Mono({
   variable: "--font-code",
@@ -41,7 +36,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body
-        className={`${display.variable} ${code.variable} ${body.variable} font-[family-name:var(--font-body)] antialiased bg-black text-white`}
+        className={`${code.variable} ${body.variable} font-[family-name:var(--font-body)] antialiased bg-black text-white`}
       >
         {children}
       </body>

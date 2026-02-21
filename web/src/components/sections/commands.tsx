@@ -110,13 +110,13 @@ export function Commands() {
             return (
               <div
                 key={cmd.name}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden transition-colors hover:border-white/[0.1]"
+                className="rounded-[3px] border border-white/[0.06] bg-white/[0.02] overflow-hidden transition-colors hover:border-white/[0.1]"
               >
                 <button
                   onClick={() => setExpanded(isOpen ? null : cmd.name)}
                   className="w-full flex items-center gap-4 px-5 py-4 text-left"
                 >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-cyan-500/20">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[3px] bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-cyan-500/20">
                     <span className="font-code text-xs font-bold text-cyan-400">$</span>
                   </div>
                   <div className="flex-1 min-w-0">
@@ -150,7 +150,7 @@ export function Commands() {
                       className="overflow-hidden"
                     >
                       <div className="px-5 pb-5">
-                        <div className="rounded-xl border border-white/[0.06] bg-[#0a0a0a] overflow-hidden">
+                        <div className="rounded-[3px] border border-white/[0.06] bg-[#0a0a0a] overflow-hidden">
                           <div className="flex items-center gap-2 border-b border-white/[0.04] px-4 py-2.5">
                             <div className="flex gap-1.5">
                               <div className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]/60" />

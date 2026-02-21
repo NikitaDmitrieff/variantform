@@ -2,7 +2,7 @@
 import { Timeline } from "@/components/ui/timeline";
 
 const codeBlock = (code: string) => (
-  <pre className="mt-4 overflow-x-auto rounded-xl border border-white/[0.06] bg-[#0a0a0a] p-4 font-code text-[13px] leading-relaxed">
+  <pre className="mt-4 overflow-x-auto rounded-md border border-white/[0.06] bg-[#0a0a0a] p-4 font-code text-[13px] leading-relaxed">
     <code>{code}</code>
   </pre>
 );

@@ -1,9 +1,8 @@
 import { getInstallationOctokit, parseRepo } from "./github";
 import yaml from "js-yaml";
-import type { Octokit } from "@octokit/rest";
 
 interface RepoContext {
-  octokit: Octokit;
+  octokit: { request: Function };
   owner: string;
   repo: string;
   branch: string;
@@ -21,12 +20,10 @@ export async function getRepoContext(
 
 /** Fetch and parse .variantform.yaml from the repo. */
 export async function fetchConfig(ctx: RepoContext) {
-  const { data } = await ctx.octokit.repos.getContent({
-    owner: ctx.owner,
-    repo: ctx.repo,
-    path: ".variantform.yaml",
-    ref: ctx.branch,
-  });
+  const { data } = await ctx.octokit.request(
+    "GET /repos/{owner}/{repo}/contents/{path}",
+    { owner: ctx.owner, repo: ctx.repo, path: ".variantform.yaml", ref: ctx.branch }
+  );
 
   if (Array.isArray(data) || data.type !== "file") {
     throw new Error(".variantform.yaml is not a file");
@@ -52,12 +49,10 @@ export async function fetchFile(
   path: string
 ): Promise<{ content: string; sha: string } | null> {
   try {
-    const { data } = await ctx.octokit.repos.getContent({
-      owner: ctx.owner,
-      repo: ctx.repo,
-      path,
-      ref: ctx.branch,
-    });
+    const { data } = await ctx.octokit.request(
+      "GET /repos/{owner}/{repo}/contents/{path}",
+      { owner: ctx.owner, repo: ctx.repo, path, ref: ctx.branch }
+    );
 
     if (Array.isArray(data) || data.type !== "file") return null;
 
@@ -77,15 +72,13 @@ export async function listDirectories(
   path: string
 ): Promise<string[]> {
   try {
-    const { data } = await ctx.octokit.repos.getContent({
-      owner: ctx.owner,
-      repo: ctx.repo,
-      path,
-      ref: ctx.branch,
-    });
+    const { data } = await ctx.octokit.request(
+      "GET /repos/{owner}/{repo}/contents/{path}",
+      { owner: ctx.owner, repo: ctx.repo, path, ref: ctx.branch }
+    );
 
     if (!Array.isArray(data)) return [];
-    return data.filter((d) => d.type === "dir").map((d) => d.name);
+    return data.filter((d: any) => d.type === "dir").map((d: any) => d.name);
   } catch (e: any) {
     if (e.status === 404) return [];
     throw e;
@@ -100,15 +93,18 @@ export async function putFile(
   message: string,
   existingSha?: string
 ): Promise<void> {
-  await ctx.octokit.repos.createOrUpdateFileContents({
-    owner: ctx.owner,
-    repo: ctx.repo,
-    path,
-    message,
-    content: Buffer.from(content).toString("base64"),
-    branch: ctx.branch,
-    ...(existingSha ? { sha: existingSha } : {}),
-  });
+  await ctx.octokit.request(
+    "PUT /repos/{owner}/{repo}/contents/{path}",
+    {
+      owner: ctx.owner,
+      repo: ctx.repo,
+      path,
+      message,
+      content: Buffer.from(content).toString("base64"),
+      branch: ctx.branch,
+      ...(existingSha ? { sha: existingSha } : {}),
+    }
+  );
 }
 
 /** Delete a file from the repo. */
@@ -118,12 +114,15 @@ export async function deleteFile(
   sha: string,
   message: string
 ): Promise<void> {
-  await ctx.octokit.repos.deleteFile({
-    owner: ctx.owner,
-    repo: ctx.repo,
-    path,
-    message,
-    sha,
-    branch: ctx.branch,
-  });
+  await ctx.octokit.request(
+    "DELETE /repos/{owner}/{repo}/contents/{path}",
+    {
+      owner: ctx.owner,
+      repo: ctx.repo,
+      path,
+      message,
+      sha,
+      branch: ctx.branch,
+    }
+  );
 }

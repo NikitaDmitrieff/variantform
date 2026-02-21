@@ -59,7 +59,7 @@ export function GetStarted() {
           ].map((item) => (
             <div
               key={item.step}
-              className="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 text-left transition-all hover:border-white/[0.12] hover:bg-white/[0.04]"
+              className="group rounded-[3px] border border-white/[0.06] bg-white/[0.02] p-6 text-left transition-all hover:border-white/[0.12] hover:bg-white/[0.04]"
             >
               <span className="font-code text-xs font-bold text-cyan-400/60">
                 {item.step}
@@ -68,7 +68,7 @@ export function GetStarted() {
                 {item.title}
               </h3>
               <p className="mt-1 text-sm text-zinc-500">{item.desc}</p>
-              <div className="mt-3 rounded-lg bg-black/50 px-3 py-2 font-code text-[11px] text-zinc-600">
+              <div className="mt-3 rounded-md bg-black/50 px-3 py-2 font-code text-[11px] text-zinc-600">
                 <span className="text-cyan-400/40">$ </span>
                 {item.cmd}
               </div>

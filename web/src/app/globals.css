@@ -185,7 +185,7 @@ html {
 
 /* Utility classes */
 .font-display {
-  font-family: var(--font-display), system-ui, sans-serif;
+  font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
 }
 
 .font-code {

@@ -1,5 +1,4 @@
 import { App } from "@octokit/app";
-import { Octokit } from "@octokit/rest";
 
 let app: App | null = null;
 
@@ -14,9 +13,9 @@ function getApp(): App {
 }
 
 /** Get an authenticated Octokit instance for a specific installation. */
-export async function getInstallationOctokit(installationId: number): Promise<Octokit> {
+export async function getInstallationOctokit(installationId: number) {
   const ghApp = getApp();
-  return (await ghApp.getInstallationOctokit(installationId)) as unknown as Octokit;
+  return ghApp.getInstallationOctokit(installationId);
 }
 
 /** Parse "owner/repo" into components. */

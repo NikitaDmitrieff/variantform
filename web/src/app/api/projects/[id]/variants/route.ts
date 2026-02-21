@@ -52,8 +52,10 @@ export async function GET(
 
     return NextResponse.json({ variants });
   } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to read repo";
+    console.error("GET /api/projects/[id]/variants error:", message, e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to read repo" },
+      { error: message },
       { status: 500 }
     );
   }

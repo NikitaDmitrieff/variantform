@@ -33,8 +33,13 @@ export default function ProjectOverviewPage() {
         fetch(`/api/projects/${projectId}/variants`),
       ]);
 
-      if (!surfacesRes.ok || !variantsRes.ok) {
-        throw new Error("Failed to load project data from repository");
+      if (!surfacesRes.ok) {
+        const err = await surfacesRes.json().catch(() => ({}));
+        throw new Error(`Surfaces: ${err.error || surfacesRes.statusText}`);
+      }
+      if (!variantsRes.ok) {
+        const err = await variantsRes.json().catch(() => ({}));
+        throw new Error(`Variants: ${err.error || variantsRes.statusText}`);
       }
 
       const surfacesData = await surfacesRes.json();

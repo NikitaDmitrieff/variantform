@@ -39,7 +39,7 @@ export const TextHoverEffect = ({
       ref={svgRef}
       width="100%"
       height="100%"
-      viewBox="0 0 300 100"
+      viewBox="0 0 550 80"
       xmlns="http://www.w3.org/2000/svg"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -68,7 +68,7 @@ export const TextHoverEffect = ({
         <motion.radialGradient
           id={maskId}
           gradientUnits="userSpaceOnUse"
-          r="40%"
+          r="50%"
           initial={{ cx: "50%", cy: "50%" }}
           animate={maskPosition}
           transition={{ duration: duration ?? 0, ease: "easeOut" }}

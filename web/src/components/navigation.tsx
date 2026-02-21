@@ -27,7 +27,7 @@ export function Navigation() {
           href="#"
           className="relative z-20 flex items-center gap-2.5 px-2 py-1 text-sm font-bold text-white"
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-violet-500">
+          <div className="flex h-7 w-7 items-center justify-center rounded-[3px] bg-gradient-to-br from-cyan-400 to-violet-500">
             <span className="font-display text-xs font-extrabold text-white">
               V
             </span>
@@ -56,7 +56,7 @@ export function Navigation() {
             href="#"
             className="flex items-center gap-2 text-sm font-bold text-white"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-violet-500">
+            <div className="flex h-7 w-7 items-center justify-center rounded-[3px] bg-gradient-to-br from-cyan-400 to-violet-500">
               <span className="font-display text-xs font-extrabold text-white">
                 V
               </span>

@@ -33,7 +33,7 @@ export function Comparison() {
           className="grid grid-cols-1 md:grid-cols-2 gap-6"
         >
           {/* Branches — the problem */}
-          <div className="rounded-xl border border-red-500/10 bg-gradient-to-br from-red-950/10 to-black p-6">
+          <div className="rounded-[3px] border border-red-500/10 bg-gradient-to-br from-red-950/10 to-black p-6">
             <div className="flex items-center gap-2 mb-4">
               <span className="text-red-400 text-lg">&#10005;</span>
               <span className="font-display text-sm font-bold text-zinc-300">Branches</span>
@@ -54,7 +54,7 @@ export function Comparison() {
           </div>
 
           {/* Overlays — the solution */}
-          <div className="rounded-xl border border-emerald-500/10 bg-gradient-to-br from-emerald-950/10 to-black p-6">
+          <div className="rounded-[3px] border border-emerald-500/10 bg-gradient-to-br from-emerald-950/10 to-black p-6">
             <div className="flex items-center gap-2 mb-4">
               <span className="text-emerald-400 text-lg">&#10003;</span>
               <span className="font-display text-sm font-bold text-zinc-300">Overlays</span>

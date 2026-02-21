@@ -1,6 +1,5 @@
 "use client";
 import { motion } from "motion/react";
-import { HeroHighlight, Highlight } from "@/components/ui/hero-highlight";
 import { TextHoverEffect } from "@/components/ui/text-hover-effect";
 import { Terminal } from "@/components/terminal";
 import { useState } from "react";
@@ -30,48 +29,28 @@ export function Hero() {
   };
 
   return (
-    <HeroHighlight
-      containerClassName="min-h-screen relative overflow-hidden"
-      className="max-w-6xl mx-auto px-4 pt-24 pb-20"
-    >
-      {/* Gradient orbs */}
-      <div className="pointer-events-none absolute top-1/4 left-1/4 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-500/[0.07] blur-[120px] animate-orb" />
-      <div className="pointer-events-none absolute right-1/4 bottom-1/3 h-[400px] w-[400px] rounded-full bg-violet-500/[0.07] blur-[100px] animate-orb" style={{ animationDelay: "-7s" }} />
-
-      <div className="relative z-10 flex flex-col items-center">
-        {/* Badge */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="mb-4"
-        >
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 text-sm text-zinc-400 backdrop-blur-sm">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-glow" />
-            Open source &middot; MIT License
-          </span>
-        </motion.div>
-
+    <section className="relative bg-black">
+      {/* Above the fold — VARIANTFORM + npm install only */}
+      <div className="flex min-h-screen flex-col items-center justify-center px-4">
         {/* VARIANTFORM — the centerpiece */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.1 }}
-          className="w-full h-[12rem] sm:h-[14rem] flex items-center justify-center"
+          transition={{ duration: 1 }}
+          className="w-full max-w-5xl h-[10rem] sm:h-[12rem] md:h-[14rem]"
         >
           <TextHoverEffect text="VARIANTFORM" duration={0.3} textSize="text-6xl" />
         </motion.div>
 
-        {/* npm install — right beneath */}
+        {/* npm install — right beneath, semi-transparent bg */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-          className="mt-2"
+          transition={{ duration: 0.6, delay: 0.5 }}
         >
           <button
             onClick={handleCopy}
-            className="group relative mx-auto flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-6 py-4 font-code text-sm transition-all hover:border-white/[0.15] hover:bg-white/[0.05]"
+            className="group relative mx-auto flex items-center gap-3 rounded-[3px] border border-white/[0.08] bg-black/80 px-6 py-4 font-code text-sm backdrop-blur-sm transition-all hover:border-white/[0.15] hover:bg-white/[0.03]"
           >
             <span className="text-cyan-400 select-none">$</span>
             <span className="text-zinc-300">npm install -g variantform</span>
@@ -91,38 +70,39 @@ export function Hero() {
             {copied ? "Copied!" : "Click to copy"}
           </p>
         </motion.div>
+      </div>
 
-        {/* Tagline */}
+      {/* Below the fold — tagline + terminal */}
+      <div className="flex flex-col items-center px-4 pb-24">
         <motion.h2
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.5 }}
-          className="mt-10 text-center font-display text-3xl font-extrabold tracking-tight sm:text-4xl md:text-5xl"
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.6 }}
+          className="text-center font-display text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl"
         >
           Stop managing{" "}
-          <Highlight className="text-white dark:from-cyan-400 dark:to-violet-500">
-            configs
-          </Highlight>
+          <span className="text-gradient">configs</span>
           <br />
           <span className="text-zinc-500">Start declaring&nbsp;</span>
           <span className="text-gradient">variants</span>
         </motion.h2>
 
-        {/* One-liner subtitle */}
         <motion.p
           initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.7 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.5, delay: 0.1 }}
           className="mt-4 text-lg text-zinc-500"
         >
           Git-native config overlays for SaaS teams.
         </motion.p>
 
-        {/* Terminal Demo — faster */}
         <motion.div
           initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.9 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.8, delay: 0.2 }}
           className="mt-12 w-full max-w-2xl"
         >
           <Terminal
@@ -133,6 +113,6 @@ export function Hero() {
           />
         </motion.div>
       </div>
-    </HeroHighlight>
+    </section>
   );
 }

@@ -44,9 +44,9 @@ export function Possibilities() {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
             transition={{ duration: 0.5, delay: 0.2 }}
-            className="relative z-10 flex items-center gap-3 rounded-xl border border-white/[0.1] bg-white/[0.04] px-6 py-3 backdrop-blur-sm"
+            className="relative z-10 flex items-center gap-3 rounded-[3px] border border-white/[0.1] bg-white/[0.04] px-6 py-3 backdrop-blur-sm"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-white/[0.1]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-[3px] bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-white/[0.1]">
               <span className="font-code text-xs font-bold text-white">B</span>
             </div>
             <div>
@@ -71,7 +71,7 @@ export function Possibilities() {
                 initial={{ opacity: 0, y: 30 }}
                 animate={isInView ? { opacity: 1, y: 0 } : {}}
                 transition={{ duration: 0.5, delay: 0.6 + i * 0.1 }}
-                className="group relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.12]"
+                className="group relative rounded-[3px] border border-white/[0.06] bg-white/[0.02] p-5 transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.12]"
               >
                 {/* Color accent line */}
                 <div
