@@ -1,37 +1,32 @@
 import yaml from "js-yaml";
 
 /**
- * Apply an override on top of a base object using JSON Merge Patch (RFC 7396) semantics.
+ * Apply a JSON Merge Patch (RFC 7396) on top of a target.
  *
- * Rules:
- * - Override keys are deep-merged into base
- * - null values in override mean "delete this key"
+ * Per RFC 7396 Section 2:
+ * - If the patch is not an object, the result is the patch (full replacement)
+ * - If the patch is an object, each key is applied recursively:
+ *   - null values mean "delete this key"
+ *   - object values are recursively merged
+ *   - all other values replace the target key
  * - Arrays are replaced entirely (not merged element-by-element)
- * - Nested objects are recursively merged
- * - Keys in base but not in override are preserved
+ * - Keys in target but not in patch are preserved
  */
-export function applyOverride(
-  base: Record<string, unknown>,
-  override: Record<string, unknown>
-): Record<string, unknown> {
-  const result = { ...base };
+export function applyMergePatch(target: unknown, patch: unknown): unknown {
+  if (!isObject(patch)) {
+    // RFC 7396: non-object patch replaces target entirely
+    return patch;
+  }
 
-  for (const [key, overrideValue] of Object.entries(override)) {
-    if (overrideValue === null) {
-      // RFC 7396: null means delete
+  const result: Record<string, unknown> = isObject(target) ? { ...target } : {};
+
+  for (const [key, patchValue] of Object.entries(patch)) {
+    if (patchValue === null) {
       delete result[key];
-    } else if (
-      isObject(overrideValue) &&
-      isObject(result[key])
-    ) {
-      // Both are objects: recurse
-      result[key] = applyOverride(
-        result[key] as Record<string, unknown>,
-        overrideValue as Record<string, unknown>
-      );
+    } else if (isObject(patchValue) && isObject(result[key])) {
+      result[key] = applyMergePatch(result[key], patchValue);
     } else {
-      // Scalar, array, or type mismatch: override wins
-      result[key] = overrideValue;
+      result[key] = patchValue;
     }
   }
 
@@ -39,19 +34,33 @@ export function applyOverride(
 }
 
 /**
+ * @deprecated Use applyMergePatch instead. Kept for backward compatibility.
+ * Assumes both base and override are objects.
+ */
+export function applyOverride(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>
+): Record<string, unknown> {
+  return applyMergePatch(base, override) as Record<string, unknown>;
+}
+
+/**
  * Apply a YAML override on top of a YAML base string.
- * Parses both to objects, applies JSON merge, serializes back to YAML.
+ * Parses both to objects, applies JSON merge patch, serializes back to YAML.
  */
 export function applyYamlOverride(baseStr: string, overrideStr: string): string {
   const base = yaml.load(baseStr);
   const override = yaml.load(overrideStr);
-  if (!isObject(base) || !isObject(override)) {
-    throw new Error("YAML surfaces must be mappings (objects), not scalars or arrays");
+  if (!isObject(base)) {
+    throw new Error("YAML base must be a mapping (object), not a scalar or array");
   }
-  const merged = applyOverride(base, override);
+  if (!isObject(override)) {
+    throw new Error("YAML override must be a mapping (object) for merge strategy. Use replace strategy for non-object overrides.");
+  }
+  const merged = applyMergePatch(base, override);
   return yaml.dump(merged, { indent: 2, lineWidth: -1 });
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
+export function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }

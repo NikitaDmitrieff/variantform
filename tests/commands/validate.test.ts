@@ -86,6 +86,34 @@ describe("validate command", () => {
     expect(issues.some((i) => i.type === "stale_key" && i.key === "removed_field")).toBe(true);
   });
 
+  it("detects invalid shape: array override with merge strategy", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n    strategy: merge\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("variants/acme/config/features.json", '["not", "an", "object"]');
+
+    const issues = await runValidate(project.path);
+
+    expect(issues.some((i) => i.type === "invalid_shape")).toBe(true);
+  });
+
+  it("detects invalid shape: scalar override with merge strategy", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n    strategy: merge\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("variants/acme/config/features.json", '"just a string"');
+
+    const issues = await runValidate(project.path);
+
+    expect(issues.some((i) => i.type === "invalid_shape")).toBe(true);
+  });
+
   it("detects extraneous files in variant directory", async () => {
     project = await createTestProject();
     await project.writeFile(

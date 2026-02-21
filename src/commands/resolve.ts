@@ -1,7 +1,8 @@
 import { readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, Surface } from "../config.js";
-import { applyOverride, applyYamlOverride } from "../merge.js";
+import { applyOverride, applyYamlOverride, isObject } from "../merge.js";
+import { validateVariantName, validateGlobPattern } from "../paths.js";
 import fg from "fast-glob";
 
 export interface ResolveResult {
@@ -15,6 +16,8 @@ export async function runResolve(
   variantName: string,
   surfaceFilter?: string
 ): Promise<ResolveResult[]> {
+  validateVariantName(variantName);
+
   const config = await loadConfig(projectPath);
   const variantDir = join(projectPath, "variants", variantName);
 
@@ -25,7 +28,7 @@ export async function runResolve(
     throw new Error(`variant "${variantName}" not found`);
   }
 
-  // Expand glob patterns in surfaces
+  // Expand glob patterns in surfaces (with safety checks)
   const expandedSurfaces = await expandSurfaces(projectPath, config.surfaces);
 
   // Filter to specific surface if requested
@@ -64,6 +67,11 @@ export async function runResolve(
     } else if (surface.format === "json") {
       const base = JSON.parse(baseContent);
       const override = JSON.parse(overrideContent);
+      if (!isObject(override)) {
+        throw new Error(
+          `Override for "${surface.path}" in variant "${variantName}" must be a JSON object for merge strategy. Use replace strategy for non-object overrides.`
+        );
+      }
       const merged = applyOverride(base, override);
       content = JSON.stringify(merged, null, 2);
     } else if (surface.format === "yaml") {
@@ -86,7 +94,14 @@ async function expandSurfaces(
 
   for (const surface of surfaces) {
     if (surface.path.includes("*")) {
-      const matches = await fg(surface.path, { cwd: projectPath });
+      // Validate glob pattern doesn't escape project root
+      validateGlobPattern(surface.path);
+
+      const matches = await fg(surface.path, {
+        cwd: projectPath,
+        followSymbolicLinks: false,
+        deep: 10,
+      });
       for (const match of matches.sort()) {
         expanded.push({ ...surface, path: match });
       }

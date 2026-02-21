@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
+import { validateSurfacePath } from "./paths.js";
 
 export type MergeStrategy = "merge" | "replace";
 
@@ -35,6 +36,10 @@ export async function loadConfig(repoPath: string): Promise<VariantformConfig> {
     if (typeof surface.path !== "string" || typeof surface.format !== "string") {
       throw new Error("Each surface must have 'path' (string) and 'format' (string)");
     }
+
+    // Security: reject traversal and absolute paths
+    validateSurfacePath(surface.path as string);
+
     if (!["json", "yaml"].includes(surface.format as string)) {
       throw new Error(`Invalid format "${surface.format}". Must be "json" or "yaml".`);
     }

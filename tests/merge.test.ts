@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyOverride, applyYamlOverride } from "../src/merge.js";
+import { applyOverride, applyMergePatch, applyYamlOverride } from "../src/merge.js";
 
 describe("applyOverride (JSON)", () => {
   it("deep merges override on top of base", () => {
@@ -68,6 +68,32 @@ describe("applyOverride (JSON)", () => {
   });
 });
 
+describe("applyMergePatch (RFC 7396 full compliance)", () => {
+  it("replaces target entirely when patch is not an object", () => {
+    expect(applyMergePatch({ a: 1 }, "replacement")).toBe("replacement");
+    expect(applyMergePatch({ a: 1 }, 42)).toBe(42);
+    expect(applyMergePatch({ a: 1 }, true)).toBe(true);
+    expect(applyMergePatch({ a: 1 }, null)).toBe(null);
+  });
+
+  it("replaces target with array when patch is an array", () => {
+    const result = applyMergePatch({ a: 1, b: 2 }, ["x", "y"]);
+    expect(result).toEqual(["x", "y"]);
+  });
+
+  it("creates object from scratch when target is not an object", () => {
+    const result = applyMergePatch("not an object", { a: 1 });
+    expect(result).toEqual({ a: 1 });
+  });
+
+  it("handles the RFC 7396 spec example", () => {
+    const target = { a: "b", c: { d: "e", f: "g" } };
+    const patch = { a: "z", c: { f: null } };
+    const result = applyMergePatch(target, patch);
+    expect(result).toEqual({ a: "z", c: { d: "e" } });
+  });
+});
+
 describe("applyYamlOverride", () => {
   it("merges YAML strings using JSON merge logic", () => {
     const base = "auto_assign: false\nnotifications: true\n";
@@ -76,5 +102,13 @@ describe("applyYamlOverride", () => {
     const result = applyYamlOverride(base, override);
     expect(result).toContain("auto_assign: true");
     expect(result).toContain("notifications: true");
+  });
+
+  it("throws when base YAML is not an object", () => {
+    expect(() => applyYamlOverride("- a\n- b\n", "x: 1\n")).toThrow("mapping");
+  });
+
+  it("throws when override YAML is not an object", () => {
+    expect(() => applyYamlOverride("a: 1\n", "- x\n- y\n")).toThrow("mapping");
   });
 });

@@ -2,11 +2,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import fg from "fast-glob";
-import { loadConfig, Surface } from "../config.js";
+import { loadConfig } from "../config.js";
+import { isObject } from "../merge.js";
 import { matchesPattern } from "../match.js";
 
 export interface ValidationIssue {
-  type: "stale_key" | "parse_error" | "extraneous_file";
+  type: "stale_key" | "parse_error" | "extraneous_file" | "invalid_shape";
   variant: string;
   surface?: string;
   key?: string;
@@ -52,11 +53,11 @@ export async function runValidate(projectPath: string): Promise<ValidationIssue[
       const basePath = join(projectPath, file);
 
       if (matchingSurface.strategy === "merge") {
-        let overrideObj: Record<string, unknown>;
+        let parsed: unknown;
         try {
           const content = await readFile(overridePath, "utf-8");
-          overrideObj = matchingSurface.format === "yaml"
-            ? yaml.load(content) as Record<string, unknown>
+          parsed = matchingSurface.format === "yaml"
+            ? yaml.load(content)
             : JSON.parse(content);
         } catch {
           issues.push({
@@ -68,13 +69,28 @@ export async function runValidate(projectPath: string): Promise<ValidationIssue[
           continue;
         }
 
+        // Validate shape: merge overrides must be objects
+        if (!isObject(parsed)) {
+          issues.push({
+            type: "invalid_shape",
+            variant,
+            surface: file,
+            message: `Override "${file}" in variant "${variant}" must be an object for merge strategy, got ${Array.isArray(parsed) ? "array" : typeof parsed}`,
+          });
+          continue;
+        }
+
+        const overrideObj = parsed;
+
         // Check for stale keys (override references keys not in base)
         let baseObj: Record<string, unknown>;
         try {
           const baseContent = await readFile(basePath, "utf-8");
-          baseObj = matchingSurface.format === "yaml"
-            ? yaml.load(baseContent) as Record<string, unknown>
+          const baseParsed = matchingSurface.format === "yaml"
+            ? yaml.load(baseContent)
             : JSON.parse(baseContent);
+          if (!isObject(baseParsed)) continue;
+          baseObj = baseParsed;
         } catch {
           continue; // If base doesn't exist, we can't validate keys
         }
