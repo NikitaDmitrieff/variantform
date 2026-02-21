@@ -3,13 +3,14 @@ export interface Project {
   user_id: string;
   name: string;
   created_at: string;
+  github_repo: string | null;
+  github_installation_id: number | null;
+  default_branch: string;
   surface_count?: number;
   variant_count?: number;
 }
 
 export interface Surface {
-  id: string;
-  project_id: string;
   path: string;
   format: "json" | "yaml";
   strategy: "merge" | "replace";
@@ -17,17 +18,12 @@ export interface Surface {
 }
 
 export interface Variant {
-  id: string;
-  project_id: string;
   name: string;
-  created_at: string;
-  override_count?: number;
+  override_count: number;
 }
 
 export interface Override {
-  id: string;
-  variant_id: string;
-  surface_id: string;
+  surface_path: string;
   content: string;
-  updated_at: string;
+  sha: string; // GitHub blob SHA for updates
 }
