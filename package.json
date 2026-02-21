@@ -25,5 +25,11 @@
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
+  "files": ["dist", "README.md", "LICENSE"],
+  "keywords": ["saas", "variant", "customization", "git", "multi-tenant", "white-label", "cli", "overlay", "config"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nikitadmitrieff/variantform"
+  },
   "license": "MIT"
 }
