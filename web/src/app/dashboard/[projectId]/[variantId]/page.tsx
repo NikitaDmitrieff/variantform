@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { OverrideEditor } from "@/components/dashboard/override-editor";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Copy, Trash2 } from "lucide-react";
 import type { Surface, Override } from "@/lib/types";
 
 interface SurfaceWithOverride extends Surface {
@@ -112,12 +112,51 @@ export default function VariantEditorPage() {
           <ArrowLeft className="h-3 w-3" />
           Back to {projectName}
         </button>
-        <h1 className="text-lg font-medium text-fg">
-          Variant: <span className="text-accent">{decodeURIComponent(variantName)}</span>
-        </h1>
-        <p className="mt-0.5 text-xs text-muted">
-          Edit overrides for each surface. Changes are committed directly to the repo.
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-lg font-medium text-fg">
+              Variant: <span className="text-accent">{decodeURIComponent(variantName)}</span>
+            </h1>
+            <p className="mt-0.5 text-xs text-muted">
+              Edit overrides for each surface. Changes are committed directly to the repo.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                const targetName = prompt("New variant name (duplicate of " + decodeURIComponent(variantName) + "):");
+                if (!targetName) return;
+                const res = await fetch(
+                  `/api/projects/${projectId}/variants/${encodeURIComponent(variantName)}/duplicate`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ target_name: targetName }),
+                  }
+                );
+                if (res.ok) router.push(`/dashboard/${projectId}`);
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-muted transition-colors hover:bg-white/[0.08] hover:text-fg"
+            >
+              <Copy className="h-3 w-3" />
+              Duplicate
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm(`Delete variant "${decodeURIComponent(variantName)}" and all its overrides?`)) return;
+                const res = await fetch(
+                  `/api/projects/${projectId}/variants/${encodeURIComponent(variantName)}/delete-all`,
+                  { method: "POST" }
+                );
+                if (res.ok) router.push(`/dashboard/${projectId}`);
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
+          </div>
+        </div>
       </div>
 
       {surfaces.length === 0 ? (

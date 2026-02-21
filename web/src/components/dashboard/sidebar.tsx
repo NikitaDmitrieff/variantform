@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderKanban, Layers, Settings, LogOut } from "lucide-react";
+import { FolderKanban, Layers, Sparkles, LogOut } from "lucide-react";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -71,6 +71,23 @@ export function Sidebar() {
             <Layers className="h-[15px] w-[15px]" />
           </div>
           {expanded && <span className="truncate text-xs">Overview</span>}
+        </Link>
+      )}
+
+      {/* AI Assistant (contextual) */}
+      {projectId && (
+        <Link
+          href={`/dashboard/${projectId}/chat`}
+          className={`flex items-center rounded-[16px] transition-colors ${
+            pathname.includes("/chat")
+              ? "bg-white/[0.08] text-fg"
+              : "text-muted hover:bg-white/[0.06] hover:text-fg"
+          } ${expanded ? "gap-2.5 px-2 py-2" : "justify-center p-1.5"}`}
+        >
+          <div className="flex h-[30px] w-[30px] shrink-0 items-center justify-center">
+            <Sparkles className="h-[15px] w-[15px]" />
+          </div>
+          {expanded && <span className="truncate text-xs">AI Assistant</span>}
         </Link>
       )}
 

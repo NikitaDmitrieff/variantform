@@ -38,15 +38,15 @@ export async function GET(
     const surfaceDefs = await fetchConfig(ctx);
     const variantNames = await listDirectories(ctx, "variants");
 
-    // For each variant, count how many overrides exist
+    // For each variant, count overrides and collect override paths
     const variants = await Promise.all(
       variantNames.map(async (name) => {
-        let overrideCount = 0;
+        const overrides: string[] = [];
         for (const s of surfaceDefs) {
           const file = await fetchFile(ctx, `variants/${name}/${s.path}`);
-          if (file) overrideCount++;
+          if (file) overrides.push(s.path);
         }
-        return { name, override_count: overrideCount };
+        return { name, override_count: overrides.length, overrides };
       })
     );
 
