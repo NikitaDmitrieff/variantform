@@ -1,5 +1,4 @@
 import { Navigation } from "@/components/navigation";
-import { TopBrand } from "@/components/sections/top-brand";
 import { Hero } from "@/components/sections/hero";
 import { Possibilities } from "@/components/sections/possibilities";
 import { HowItWorks } from "@/components/sections/how-it-works";
@@ -12,7 +11,6 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-x-hidden bg-black">
       <Navigation />
-      <TopBrand />
       <Hero />
       <Possibilities />
       <HowItWorks />

@@ -1,6 +1,7 @@
 "use client";
 import { motion } from "motion/react";
 import { HeroHighlight, Highlight } from "@/components/ui/hero-highlight";
+import { TextHoverEffect } from "@/components/ui/text-hover-effect";
 import { Terminal } from "@/components/terminal";
 import { useState } from "react";
 
@@ -30,7 +31,7 @@ export function Hero() {
 
   return (
     <HeroHighlight
-      containerClassName="min-h-[85vh] relative overflow-hidden"
+      containerClassName="min-h-screen relative overflow-hidden"
       className="max-w-6xl mx-auto px-4 pt-24 pb-20"
     >
       {/* Gradient orbs */}
@@ -43,7 +44,7 @@ export function Hero() {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="mb-8"
+          className="mb-4"
         >
           <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-1.5 text-sm text-zinc-400 backdrop-blur-sm">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-glow" />
@@ -51,38 +52,22 @@ export function Hero() {
           </span>
         </motion.div>
 
-        {/* Headline */}
-        <motion.h1
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="text-center font-display text-5xl font-extrabold tracking-tight sm:text-6xl md:text-7xl lg:text-8xl"
+        {/* VARIANTFORM — the centerpiece */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.1 }}
+          className="w-full h-[12rem] sm:h-[14rem] flex items-center justify-center"
         >
-          Stop managing{" "}
-          <Highlight className="text-white dark:from-cyan-400 dark:to-violet-500">
-            configs
-          </Highlight>
-          <br />
-          <span className="text-zinc-500">Start declaring&nbsp;</span>
-          <span className="text-gradient">variants</span>
-        </motion.h1>
+          <TextHoverEffect text="VARIANTFORM" duration={0.3} textSize="text-6xl" />
+        </motion.div>
 
-        {/* One-liner subtitle */}
-        <motion.p
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="mt-6 text-lg text-zinc-500"
-        >
-          Git-native config overlays for SaaS teams.
-        </motion.p>
-
-        {/* npm install — PRIMARY CTA */}
+        {/* npm install — right beneath */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.5 }}
-          className="mt-8"
+          transition={{ duration: 0.6, delay: 0.3 }}
+          className="mt-2"
         >
           <button
             onClick={handleCopy}
@@ -107,11 +92,37 @@ export function Hero() {
           </p>
         </motion.div>
 
+        {/* Tagline */}
+        <motion.h2
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.5 }}
+          className="mt-10 text-center font-display text-3xl font-extrabold tracking-tight sm:text-4xl md:text-5xl"
+        >
+          Stop managing{" "}
+          <Highlight className="text-white dark:from-cyan-400 dark:to-violet-500">
+            configs
+          </Highlight>
+          <br />
+          <span className="text-zinc-500">Start declaring&nbsp;</span>
+          <span className="text-gradient">variants</span>
+        </motion.h2>
+
+        {/* One-liner subtitle */}
+        <motion.p
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.7 }}
+          className="mt-4 text-lg text-zinc-500"
+        >
+          Git-native config overlays for SaaS teams.
+        </motion.p>
+
         {/* Terminal Demo — faster */}
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.7 }}
+          transition={{ duration: 0.8, delay: 0.9 }}
           className="mt-12 w-full max-w-2xl"
         >
           <Terminal
