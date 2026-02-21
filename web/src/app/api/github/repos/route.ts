@@ -15,9 +15,11 @@ export async function GET(request: Request) {
 
   try {
     const octokit = await getInstallationOctokit(Number(installationId));
-    const { data } = await octokit.apps.listReposAccessibleToInstallation({ per_page: 100 });
+    const { data } = await octokit.request("GET /installation/repositories", {
+      per_page: 100,
+    });
 
-    const repos = data.repositories.map((r) => ({
+    const repos = data.repositories.map((r: any) => ({
       full_name: r.full_name,
       default_branch: r.default_branch,
       private: r.private,
@@ -25,8 +27,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ repos });
   } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to list repos";
+    console.error("Failed to list repos:", message);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to list repos" },
+      { error: message },
       { status: 500 }
     );
   }
