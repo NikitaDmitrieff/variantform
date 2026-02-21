@@ -15,29 +15,11 @@ export function Possibilities() {
   const isInView = useInView(ref, { once: true, margin: "-100px" });
 
   return (
-    <section className="relative py-20 overflow-hidden" ref={ref}>
+    <section className="relative py-28 overflow-hidden" ref={ref}>
       <div className="absolute inset-0 bg-grid opacity-30" />
       <div className="absolute inset-0 bg-radial-fade" />
 
       <div className="relative z-10 max-w-5xl mx-auto px-4">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-14"
-        >
-          <span className="font-code text-sm font-medium text-[#1a1ab0] tracking-wider uppercase">
-            What you can build
-          </span>
-          <h2 className="mt-4 font-display text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl">
-            One codebase.{" "}
-            <span className="text-gradient">Infinite versions.</span>
-          </h2>
-          <p className="mt-4 text-lg text-zinc-500 max-w-lg mx-auto">
-            Every client gets their own experience. Same product, surgical differences.
-          </p>
-        </motion.div>
-
         {/* Variant fan-out animation */}
         <div className="relative flex flex-col items-center">
           {/* Source node */}

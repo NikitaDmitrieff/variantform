@@ -12,9 +12,8 @@ import {
 } from "@/components/ui/resizable-navbar";
 
 const navItems = [
-  { name: "How it works", link: "#how-it-works" },
-  { name: "Commands", link: "#commands" },
-  { name: "Compare", link: "#compare" },
+  { name: "Docs", link: "#how-it-works" },
+  { name: "GitHub", link: "https://github.com/NikitaDmitrieff/variantform" },
 ];
 
 export function Navigation() {
@@ -30,18 +29,9 @@ export function Navigation() {
           VARIANTFORM
         </a>
         <NavItems items={navItems} />
-        <div className="flex items-center gap-3">
-          <NavbarButton
-            href="https://github.com/NikitaDmitrieff/variantform"
-            variant="secondary"
-            className="text-zinc-400"
-          >
-            GitHub
-          </NavbarButton>
-          <NavbarButton href="#get-started" variant="gradient">
-            Get Started
-          </NavbarButton>
-        </div>
+        <NavbarButton href="#how-it-works" variant="gradient">
+          Get Started
+        </NavbarButton>
       </NavBody>
       <MobileNav>
         <MobileNavHeader>
@@ -70,7 +60,7 @@ export function Navigation() {
               {item.name}
             </a>
           ))}
-          <NavbarButton href="#get-started" variant="gradient" className="w-full">
+          <NavbarButton href="#how-it-works" variant="gradient" className="w-full">
             Get Started
           </NavbarButton>
         </MobileNavMenu>

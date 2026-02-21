@@ -149,7 +149,7 @@ export function Commands() {
   const selectedCmd = commands.find((c) => c.name === selected);
 
   return (
-    <section id="commands" className="relative py-20 overflow-hidden" ref={ref}>
+    <section id="commands" className="relative py-28 overflow-hidden" ref={ref}>
       <div className="absolute inset-0 bg-grid opacity-30" />
       <div className="absolute inset-0 bg-radial-fade" />
 

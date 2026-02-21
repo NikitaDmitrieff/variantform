@@ -8,7 +8,7 @@ export function Comparison() {
   const isInView = useInView(ref, { once: true, margin: "-100px" });
 
   return (
-    <section id="compare" className="relative py-20 overflow-hidden" ref={ref}>
+    <section id="compare" className="relative py-28 overflow-hidden" ref={ref}>
       <div className="relative z-10 max-w-4xl mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 30 }}

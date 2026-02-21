@@ -77,19 +77,16 @@ export function Hero() {
       </div>
 
       {/* Below the fold — tagline + terminal */}
-      <div className="flex flex-col items-center px-4 pb-24">
+      <div className="flex flex-col items-center px-4 pb-32">
         <motion.h2
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-100px" }}
           transition={{ duration: 0.6 }}
-          className="text-center font-display text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl"
+          className="text-center font-[helvetica] text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl"
         >
-          Stop managing{" "}
-          <span className="text-gradient">configs</span>
-          <br />
-          <span className="text-zinc-500">Start declaring&nbsp;</span>
-          <span className="text-gradient">variants</span>
+          One codebase.{" "}
+          <span className="text-gradient">Infinite client versions.</span>
         </motion.h2>
 
         <motion.p
@@ -97,9 +94,9 @@ export function Hero() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-100px" }}
           transition={{ duration: 0.5, delay: 0.1 }}
-          className="mt-4 text-lg text-zinc-500"
+          className="mt-4 text-lg text-zinc-500 max-w-lg mx-auto text-center"
         >
-          Git-native config overlays for SaaS teams.
+          Customize features, themes, and branding per client &mdash; without managing separate branches. Git-native config overlays for SaaS teams.
         </motion.p>
 
         <motion.div

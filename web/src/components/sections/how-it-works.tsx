@@ -141,8 +141,6 @@ export function HowItWorks() {
       <div className="relative">
         <Timeline
           data={timelineData}
-          title="How it works"
-          description="Four steps from config chaos to overlay clarity."
         />
       </div>
     </section>
