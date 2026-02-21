@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Plus } from "lucide-react";
 import { ProjectCard } from "@/components/dashboard/project-card";
@@ -9,9 +10,17 @@ import type { Project } from "@/lib/types";
 
 export default function DashboardPage() {
   const supabase = useMemo(() => createClient(), []);
+  const searchParams = useSearchParams();
+  const installationId = searchParams.get("installation_id");
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+
+  // Auto-open modal if returning from GitHub App installation
+  useEffect(() => {
+    if (installationId) setModalOpen(true);
+  }, [installationId]);
 
   const fetchProjects = useCallback(async () => {
     const { data } = await supabase
@@ -19,34 +28,7 @@ export default function DashboardPage() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (!data) {
-      setProjects([]);
-      setLoading(false);
-      return;
-    }
-
-    // Get counts for each project
-    const enriched = await Promise.all(
-      data.map(async (p) => {
-        const [surfaces, variants] = await Promise.all([
-          supabase
-            .from("vf_surfaces")
-            .select("id", { count: "exact", head: true })
-            .eq("project_id", p.id),
-          supabase
-            .from("vf_variants")
-            .select("id", { count: "exact", head: true })
-            .eq("project_id", p.id),
-        ]);
-        return {
-          ...p,
-          surface_count: surfaces.count ?? 0,
-          variant_count: variants.count ?? 0,
-        };
-      })
-    );
-
-    setProjects(enriched);
+    setProjects((data ?? []) as Project[]);
     setLoading(false);
   }, [supabase]);
 
@@ -54,8 +36,18 @@ export default function DashboardPage() {
     fetchProjects();
   }, [fetchProjects]);
 
-  async function handleCreate(name: string) {
-    const { error } = await supabase.from("vf_projects").insert({ name });
+  async function handleCreate(
+    repo: string,
+    ghInstallationId: number,
+    defaultBranch: string
+  ) {
+    const name = repo.split("/")[1] || repo;
+    const { error } = await supabase.from("vf_projects").insert({
+      name,
+      github_repo: repo,
+      github_installation_id: ghInstallationId,
+      default_branch: defaultBranch,
+    });
     if (error) throw new Error(error.message);
     await fetchProjects();
   }
@@ -68,7 +60,6 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-medium text-fg">Projects</h1>
@@ -81,11 +72,10 @@ export default function DashboardPage() {
           className="btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium"
         >
           <Plus className="h-3.5 w-3.5" />
-          New Project
+          Connect Repo
         </button>
       </div>
 
-      {/* Project grid */}
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((i) => (
@@ -99,7 +89,7 @@ export default function DashboardPage() {
             onClick={() => setModalOpen(true)}
             className="mt-3 text-xs text-accent transition-colors hover:text-fg"
           >
-            Create your first project
+            Connect your first repository
           </button>
         </div>
       ) : (
@@ -112,6 +102,7 @@ export default function DashboardPage() {
 
       <CreateProjectModal
         open={modalOpen}
+        installationId={installationId}
         onClose={() => setModalOpen(false)}
         onCreate={handleCreate}
       />
