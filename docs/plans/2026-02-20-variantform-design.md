@@ -1,12 +1,12 @@
 # Variantform Design Document
 
 **Date**: 2026-02-20
-**Status**: Approved
+**Status**: Approved (Revised after adversarial review)
 **Author**: Nikita Dmitrieff + Claude
 
 ## Problem
 
-SaaS vendors with enterprise clients face a growing pressure to offer per-client customization. Today, this is managed with ad-hoc git branches, scattered feature flags, and manual processes. No dedicated tool exists to manage a portfolio of client-specific product variants from a single source of truth.
+SaaS vendors with enterprise clients face growing pressure to offer per-client customization. Today, this is managed with ad-hoc git branches, scattered feature flags, and manual processes. No dedicated tool exists to manage a portfolio of client-specific product variants from a single source of truth.
 
 As AI makes software cheaper to build, the number of custom variants per vendor will grow. The tooling gap will widen.
 
@@ -16,92 +16,171 @@ As AI makes software cheaper to build, the number of custom variants per vendor 
 
 | Category | Examples | Limitation |
 |----------|----------|------------|
-| Feature flags | LaunchDarkly, Unleash, Flagsmith, OpenFeature | Binary on/off toggles. Cannot manage entire configuration profiles per client. |
+| Feature flags | LaunchDarkly, Unleash, Flagsmith, OpenFeature | Toggles and multi-variate flags per segment. Cannot manage entire configuration profiles per client as versioned, auditable artifacts. |
 | White-label platforms | GoHighLevel, DashClicks, ActiveCampaign | Cosmetic-only customization (logo, colors). Product behavior is identical. |
 | Multi-tenant architecture | AWS SaaS patterns, Azure SQL tenancy | Solves data isolation, not product differentiation. |
 | Plugin/extension systems | Shopify Extensions, Backstage Templates | Requires each client to build their own extensions. |
-| Software Product Line (SPL) | S.P.L.O.T., FeatureIDE | Academic, complex, not designed for modern CI/CD. |
+| Configuration overlays | Kustomize, Helm, Jsonnet | Designed for Kubernetes manifests, not SaaS product configuration. Right pattern, wrong domain. |
 | Git workflow tools | Graphite, GitButler, Mergify | No concept of "client variants" or "customization surfaces." |
 
 ### The Gap
 
-No tool lets a SaaS vendor say: "Here's my core product. Client A gets these config overrides. Client B gets different ones. I manage all variants from one source of truth, and upstream improvements propagate cleanly."
+No tool lets a SaaS vendor say: "Here's my core product config. Client A gets these overrides. Client B gets different ones. All variants live in one repo, are version-controlled, validated, and I can resolve any variant's full config on demand."
 
-Companies do branch-per-client today, but with no dedicated tooling. The pain is real and recognized.
+### Architecture Decision: Overlays, Not Branches
+
+Early design considered a branch-per-client approach (each client gets a git branch with config deltas, synced via rebase). Adversarial review revealed critical flaws:
+
+1. **Branch-per-client is a known anti-pattern** -- widely documented as unmanageable at scale.
+2. **Git custom merge drivers don't work on hosted platforms** -- GitLab explicitly doesn't support them in MRs. GitHub has similar limitations.
+3. **Rebase at scale has cascading failure modes** -- partial sync states, squash-merge incompatibility, dirty working trees.
+4. **The Kubernetes community already solved this** -- Kustomize uses base + overlay folders, not branches. Same pattern, proven at scale.
+
+**Variantform uses an overlay architecture** inspired by Kustomize, adapted for SaaS product configuration. All variants live as folders in the same repo, on the same branch. No branches, no rebase, no merge drivers.
 
 ## Solution: Variantform
 
-A git-native tool for managing per-client SaaS product variants.
+A git-native overlay tool for managing per-client SaaS product variants.
 
 ### Core Concepts
 
-| Concept | Git Equivalent | Variantform |
-|---------|---------------|-------------|
-| Source of truth | `main` branch | **Core product** |
-| Client variant | Feature branch | **Variant branch** (contains only config deltas) |
-| Customizable file | File | **Surface** (declared location where variants may diverge) |
-| Core improvement | Commit to `main` | **Upstream change** (auto-propagated to variants) |
-| Conflict | Merge conflict | **Drift** (variant customization collides with upstream change) |
+| Concept | Description |
+|---------|-------------|
+| **Base** | The default configuration files in their normal repo locations |
+| **Surface** | A declared file where per-client overrides are allowed |
+| **Variant** | A named client with override files in `variants/<client>/` |
+| **Override** | A file containing only the keys that differ from the base (JSON Merge Patch semantics) |
+| **Resolve** | The process of merging base + overrides to produce final config for a client |
 
 ### Key Invariants
 
-1. Variants never modify core code -- they only touch declared surfaces.
-2. Upstream always flows forward -- variants rebase onto latest `main`.
-3. Conflicts are surfaced immediately with context about affected clients.
+1. Variants only override declared surfaces -- the tool validates this.
+2. Overrides are deltas, not full copies -- only what differs from base is stored.
+3. Upstream improvements propagate automatically -- new keys in base flow through without any override changes.
+4. All variants are visible in one checkout -- no branch switching, easy to audit and review.
+
+### Repository Structure
+
+```
+my-saas/
+├── src/                              # Application code (never overridden)
+├── config/
+│   ├── features.json                 # BASE: default product config
+│   ├── theme.json                    # BASE: default theme
+│   └── workflows/
+│       └── default.yaml              # BASE: default workflow
+├── variants/
+│   ├── acme/
+│   │   └── config/
+│   │       └── features.json         # OVERRIDE: only Acme's deltas
+│   ├── globex/
+│   │   └── config/
+│   │       ├── features.json         # OVERRIDE: Globex's deltas
+│   │       └── theme.json            # OVERRIDE: Globex's theme
+│   └── initech/
+│       └── config/
+│           └── features.json         # OVERRIDE: Initech's deltas
+├── .variantform.yaml                 # Surface declarations
+└── package.json
+```
 
 ### Surface Declaration
 
-Vendors declare customization surfaces in `.variantform.yaml`:
-
 ```yaml
+# .variantform.yaml
 surfaces:
   - path: "config/features.json"
     format: json
+    strategy: merge       # deep merge: override contains only deltas
+
   - path: "config/theme.json"
     format: json
+    strategy: replace     # full replace: override is the complete file
+
   - path: "config/workflows/*.yaml"
     format: yaml
+    strategy: merge
 ```
 
-Only files matching these patterns are allowed to differ across variant branches. The tool flags modifications outside declared surfaces as violations.
+**Strategies:**
+- `merge` (default): Deep merge override on top of base. Uses JSON Merge Patch (RFC 7396) semantics -- `null` values in override mean "delete this key." New keys in base flow through automatically.
+- `replace`: Override file completely replaces the base. Good for themes, CSS, or any file where partial override doesn't make sense.
 
-### Format-Aware Merging
+### Override Example
 
-Instead of raw git text merging, Variantform registers custom git merge drivers (via `.gitattributes`) that understand file formats:
+Base `config/features.json`:
+```json
+{
+  "kanban": true,
+  "gantt": true,
+  "time_tracking": false,
+  "max_projects": 10,
+  "ai_assistant": false
+}
+```
 
-- **JSON**: deep-merge objects. New keys from upstream flow in; existing overrides preserved; same-key conflicts flagged explicitly.
-- **YAML**: same as JSON.
-- **Other files**: fall back to standard git merge.
+Acme's override `variants/acme/config/features.json`:
+```json
+{
+  "time_tracking": true,
+  "max_projects": 50
+}
+```
 
-This dramatically reduces false conflicts. When `main` adds a new feature flag, it merges cleanly alongside existing client overrides.
+Resolved output for Acme:
+```json
+{
+  "kanban": true,
+  "gantt": true,
+  "time_tracking": true,
+  "max_projects": 50,
+  "ai_assistant": false
+}
+```
+
+When the base adds `"ai_assistant": true`, Acme automatically gets it -- no sync, no rebase, no conflict.
 
 ### CLI Commands
 
 ```bash
-variantform create <client-name>     # Create variant branch
-variantform edit <client> <file>     # Edit a variant's config
-variantform sync                     # Rebase all variants onto latest main
-variantform status                   # Show sync state of all variants
-variantform diff <client>            # Show overrides vs main
+variantform init                          # Set up .variantform.yaml and variants/ directory
+variantform create <client-name>          # Create a new variant directory
+variantform resolve <client> [surface]    # Output the merged config for a client
+variantform status                        # Show all variants and their override state
+variantform diff <client>                 # Show what overrides differ from base
+variantform validate                      # Check all overrides are valid against current base
 ```
 
-The CLI orchestrates regular git commands. No new VCS. Developers can always fall back to raw git.
+### How "Upstream Sync" Works (It's Automatic)
+
+With overlays, there's no explicit sync step. When the base config changes on `main`:
+
+| Base change | Override behavior | Action needed |
+|-------------|-------------------|---------------|
+| New key added | Flows through automatically | None |
+| Existing key value changed | Override's delta still applies on top | None |
+| Key removed that no override touches | Works fine | None |
+| Key removed that an override modified | Override references non-existent key | `validate` catches this |
+| Key renamed | Override references old name | `validate` catches this |
+
+The `validate` command catches the rare cases where manual intervention is needed. No more rebase, no more merge conflicts, no more cascading failures.
 
 ## Product Architecture
 
 ### Two Layers
 
 **Layer 1: Open-Source CLI** (`variantform`)
-- Git-native engine with format-aware merge drivers
+- Overlay engine with JSON/YAML deep merge
+- Validation, resolution, and status reporting
 - MIT or Apache 2.0 licensed
-- Works with any git host (GitHub, GitLab, Bitbucket)
+- Works with any git host, any CI/CD
 
 **Layer 2: Variantform Cloud** (commercial SaaS)
 - GitHub/GitLab App + web dashboard
-- Auto-triggers sync on push to main
+- Auto-validates on push to main
 - Visual variant status dashboard
-- AI-assisted conflict resolution
-- Drift metrics and trend graphs over time
+- AI-suggested override generation ("make Acme's config HIPAA-compliant")
+- Override drift alerts over time
 - Team permissions (who can edit which variant)
 - Structured audit trail
 
@@ -109,12 +188,13 @@ The CLI orchestrates regular git commands. No new VCS. Developers can always fal
 
 | Feature | CLI (Free) | Cloud (Paid) |
 |---------|-----------|-------------|
-| Create/manage variant branches | Yes | Yes |
-| Format-aware merge | Yes | Yes |
-| Manual sync | Yes | Auto on push |
+| Create/manage variants | Yes | Yes |
+| Resolve (merge base + overrides) | Yes | Yes + API |
+| Validate overrides | Yes | Auto on push |
 | Status overview | Terminal | Visual dashboard |
-| Conflict resolution | Manual | AI-suggested |
-| Drift detection | `diff` command | Alerts + metrics |
+| Diff overrides vs base | Yes | Side-by-side visual diff |
+| CI/CD integration | CLI in pipeline | Webhook + API |
+| Override suggestions | No | AI-powered |
 | Variant health history | No | Yes |
 | Team permissions | No | Yes |
 | Audit log | Git log | Structured trail |
@@ -123,39 +203,41 @@ The CLI orchestrates regular git commands. No new VCS. Developers can always fal
 
 **Target customer**: B2B SaaS companies (Series A+) with 5-20 enterprise clients demanding per-client customization.
 
-**Go-to-market**: Open-source CLI drives adoption. Engineers discover it, try it, bring it to their team. Cloud upgrade for dashboard, AI merge, and audit trail.
+**Go-to-market**: Open-source CLI drives adoption. Engineers discover it, try it, bring it to their team. Cloud upgrade for dashboard, AI suggestions, and audit trail.
 
 **Pricing**: Per-variant per-month ($50-200/mo for a typical 10-variant setup).
 
-**Timing thesis**: AI makes customization cheaper → vendors say "yes" more → variants proliferate → need infrastructure to manage them → Variantform.
+**Timing thesis**: AI makes customization cheaper -> vendors say "yes" more -> variants proliferate -> need infrastructure to manage them -> Variantform.
 
 ## Competitive Positioning
 
-- **vs. Feature flags** (LaunchDarkly): Complementary. Flags toggle features; Variantform manages entire config profiles per client, versioned and synced.
-- **vs. Merge automation** (Mergify): General-purpose merge tools with no variant awareness.
+- **vs. Feature flags** (LaunchDarkly): Complementary. Flags toggle features at runtime; Variantform manages entire config profiles per client as versioned artifacts in your repo. Use both.
+- **vs. Kustomize/Helm**: Same overlay pattern, but designed for SaaS product config, not Kubernetes manifests. Simpler, more focused, with SaaS-specific features (variant health, client naming, CI/CD integration).
+- **vs. Branch-per-client**: Variantform replaces this anti-pattern with a cleaner overlay model. Migration path: collapse client branches into overlay folders.
 - **vs. Dev platforms** (Backstage): Different problem (scaffolding new services vs. managing variants of one).
-- **vs. Git workflow tools** (Graphite): No concept of client variants or customization surfaces.
 
 ## Risks
 
 1. **Market timing** (medium): Thesis depends on AI accelerating customization demand. Mitigated by existing pain in B2B SaaS today.
-2. **"Just use feature flags" objection** (high): Need clear content marketing showing the gap flags can't fill. Config drift, audit trails, sync management.
-3. **Git branch scaling** (low for V1): Config-only branches are lightweight. Problem only at 100+ variants with code-level divergence.
-4. **Platform risk** (medium): CLI is git-native (host-agnostic). Cloud should support GitHub + GitLab + Bitbucket from start.
-5. **Adoption friction** (medium): Requires retrofitting repos with surface declarations. Mitigated by `variantform init` wizard.
+2. **"Just use feature flags" objection** (high): Need clear content marketing showing the gap flags can't fill -- versioned config profiles, git-tracked, auditable, per-client.
+3. **"Just use Kustomize" objection** (medium): Kustomize is for K8s manifests, not SaaS config. But the pattern is similar enough that some users might repurpose it. Differentiate on SaaS-specific features.
+4. **Adoption friction** (medium): Requires retrofitting repos with surface declarations and migrating existing per-client configs into overlay folders. Mitigated by `variantform init` wizard.
+5. **Override complexity at scale** (low for V1): With 100+ variants, the `variants/` directory gets large. Mitigated by tooling (status, validate) and the fact that override files are small (just deltas).
 
 ## Growth Vectors
 
-- AI-native conflict resolution as a differentiator
-- Per-variant deployment management (variant → auto-deploy to environment)
-- Variant template marketplace (e.g., "healthcare-compliant config overlay")
+- AI-powered override generation ("generate a HIPAA-compliant config overlay")
+- Per-variant deployment management (resolve + deploy in one step)
+- Variant template marketplace ("healthcare overlay", "enterprise overlay")
+- Config schema evolution (detect breaking changes in base that affect overrides)
 - Acquisition target for GitHub, GitLab, or LaunchDarkly
 
 ## Starting Scope (V1)
 
 - Configuration-level customization only
 - 5-20 client variants per vendor
-- CLI tool with 5 core commands
-- JSON and YAML format-aware merge drivers
-- GitHub integration for Cloud layer
+- CLI tool with 6 core commands (init, create, resolve, status, diff, validate)
+- JSON and YAML deep merge with RFC 7396 semantics
+- merge and replace strategies per surface
+- Validation against current base
 - SaaS vendor's internal team as primary user

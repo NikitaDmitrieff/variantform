@@ -1,12 +1,14 @@
-# Variantform V1 CLI Implementation Plan
+# Variantform V1 CLI Implementation Plan (Revised: Overlay Architecture)
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build the open-source Variantform CLI that lets SaaS vendors manage per-client configuration variants from a single git repo.
+**Goal:** Build the open-source Variantform CLI that lets SaaS vendors manage per-client configuration variants using an overlay model -- all variants as folders in the same repo, no branches, no rebase.
 
-**Architecture:** TypeScript CLI wrapping git commands. Declares customization "surfaces" in `.variantform.yaml`, creates per-client variant branches that only modify those surfaces, and syncs them with upstream `main` using format-aware (JSON/YAML) 3-way merge drivers registered via `.gitattributes`.
+**Architecture:** TypeScript CLI. Base config files live in their normal locations. Per-client overrides live in `variants/<client>/` as delta files. The tool merges base + overrides on demand using JSON Merge Patch (RFC 7396) or full file replacement. Validation catches stale or invalid overrides.
 
-**Tech Stack:** TypeScript, Commander.js (CLI), simple-git (git ops), js-yaml (YAML), chalk (terminal colors), Vitest (tests), tsx (dev runner)
+**Tech Stack:** TypeScript, Commander.js (CLI), js-yaml (YAML), chalk (terminal colors), Vitest (tests), tsx (dev runner)
+
+**Key dependency removed:** `simple-git` -- no longer needed since we don't manage branches. We only use git for detecting the repo root (or just use cwd).
 
 ---
 
@@ -17,30 +19,26 @@ variantform/
 ├── src/
 │   ├── cli.ts                    # Entry point, command registration
 │   ├── config.ts                 # Parse .variantform.yaml
-│   ├── git.ts                    # Git operations wrapper
-│   ├── merge/
-│   │   ├── json-driver.ts        # 3-way JSON deep merge
-│   │   ├── yaml-driver.ts        # 3-way YAML deep merge
-│   │   └── index.ts              # Merge driver CLI entry (invoked by git)
+│   ├── merge.ts                  # JSON/YAML deep merge (RFC 7396)
 │   └── commands/
 │       ├── init.ts               # variantform init
 │       ├── create.ts             # variantform create <client>
+│       ├── resolve.ts            # variantform resolve <client> [surface]
 │       ├── status.ts             # variantform status
-│       ├── sync.ts               # variantform sync
-│       └── diff.ts               # variantform diff <client>
+│       ├── diff.ts               # variantform diff <client>
+│       └── validate.ts           # variantform validate
 ├── tests/
 │   ├── helpers/
-│   │   └── test-repo.ts          # Create temp git repos for testing
+│   │   └── test-project.ts       # Create temp project directories for testing
 │   ├── config.test.ts
-│   ├── merge/
-│   │   ├── json-driver.test.ts
-│   │   └── yaml-driver.test.ts
+│   ├── merge.test.ts
 │   └── commands/
 │       ├── init.test.ts
 │       ├── create.test.ts
+│       ├── resolve.test.ts
 │       ├── status.test.ts
-│       ├── sync.test.ts
-│       └── diff.test.ts
+│       ├── diff.test.ts
+│       └── validate.test.ts
 ├── package.json
 ├── tsconfig.json
 └── vitest.config.ts
@@ -62,7 +60,7 @@ variantform/
 {
   "name": "variantform",
   "version": "0.1.0",
-  "description": "Git-native tool for managing per-client SaaS product variants",
+  "description": "Git-native overlay tool for managing per-client SaaS product variants",
   "type": "module",
   "bin": {
     "variantform": "./dist/cli.js"
@@ -77,8 +75,7 @@ variantform/
     "chalk": "^5.4.0",
     "commander": "^13.1.0",
     "fast-glob": "^3.3.3",
-    "js-yaml": "^4.1.0",
-    "simple-git": "^3.27.0"
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
@@ -90,6 +87,8 @@ variantform/
   "license": "MIT"
 }
 ```
+
+Note: `simple-git` is removed. We don't manage branches anymore.
 
 **Step 2: Create tsconfig.json**
 
@@ -120,7 +119,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     globals: true,
-    testTimeout: 15000,
+    testTimeout: 10000,
   },
 });
 ```
@@ -135,7 +134,7 @@ const program = new Command();
 
 program
   .name("variantform")
-  .description("Git-native tool for managing per-client SaaS product variants")
+  .description("Git-native overlay tool for managing per-client SaaS product variants")
   .version("0.1.0");
 
 program.parse();
@@ -151,12 +150,7 @@ Expected: `node_modules` created, lock file generated
 Run: `npx tsc --noEmit`
 Expected: No errors
 
-**Step 7: Verify test runner works**
-
-Run: `npx vitest run`
-Expected: "No test files found" (but vitest itself runs)
-
-**Step 8: Commit**
+**Step 7: Commit**
 
 ```bash
 git add package.json tsconfig.json vitest.config.ts src/cli.ts package-lock.json
@@ -165,115 +159,92 @@ git commit -m "feat: project scaffolding with TypeScript, Commander, Vitest"
 
 ---
 
-### Task 2: Test Helper -- Temp Git Repo Factory
+### Task 2: Test Helper -- Temp Project Factory
 
-Creates a helper that spins up real temp git repos for integration testing. Every subsequent test task depends on this.
+Creates a helper that sets up temporary project directories with base config files and variant folders for testing.
 
 **Files:**
-- Create: `tests/helpers/test-repo.ts`
+- Create: `tests/helpers/test-project.ts`
+- Create: `tests/helpers/test-project.test.ts`
 
 **Step 1: Write the test helper**
 
 ```typescript
-import { simpleGit, SimpleGit } from "simple-git";
-import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
-export interface TestRepo {
+export interface TestProject {
   path: string;
-  git: SimpleGit;
-  /** Write a file relative to repo root and optionally stage+commit it */
+  /** Write a file relative to project root */
   writeFile(relativePath: string, content: string): Promise<void>;
-  /** Stage and commit all changes */
-  commit(message: string): Promise<void>;
+  /** Read a file relative to project root */
+  readFile(relativePath: string): Promise<string>;
   /** Clean up the temp directory */
   cleanup(): Promise<void>;
 }
 
-export async function createTestRepo(): Promise<TestRepo> {
+export async function createTestProject(): Promise<TestProject> {
   const path = await mkdtemp(join(tmpdir(), "variantform-test-"));
-  const git = simpleGit(path);
-  await git.init();
-  await git.addConfig("user.email", "test@variantform.dev");
-  await git.addConfig("user.name", "Variantform Test");
 
-  // Create initial commit so main branch exists
-  const readmePath = join(path, "README.md");
-  await writeFile(readmePath, "# Test Repo\n");
-  await git.add("README.md");
-  await git.commit("initial commit");
-
-  const repo: TestRepo = {
+  const project: TestProject = {
     path,
-    git,
     async writeFile(relativePath: string, content: string) {
       const fullPath = join(path, relativePath);
-      const dir = fullPath.substring(0, fullPath.lastIndexOf("/"));
-      await mkdir(dir, { recursive: true });
+      await mkdir(dirname(fullPath), { recursive: true });
       await writeFile(fullPath, content);
     },
-    async commit(message: string) {
-      await git.add(".");
-      await git.commit(message);
+    async readFile(relativePath: string): Promise<string> {
+      return readFile(join(path, relativePath), "utf-8");
     },
     async cleanup() {
       await rm(path, { recursive: true, force: true });
     },
   };
 
-  return repo;
+  return project;
 }
 ```
 
-**Step 2: Write a smoke test for the helper**
-
-Create `tests/helpers/test-repo.test.ts`:
+**Step 2: Write a smoke test**
 
 ```typescript
 import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "./test-repo.js";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createTestProject, TestProject } from "./test-project.js";
 
-describe("createTestRepo", () => {
-  let repo: TestRepo;
+describe("createTestProject", () => {
+  let project: TestProject;
 
   afterEach(async () => {
-    await repo?.cleanup();
+    await project?.cleanup();
   });
 
-  it("creates a git repo with an initial commit", async () => {
-    repo = await createTestRepo();
-    const log = await repo.git.log();
-    expect(log.total).toBe(1);
-    expect(log.latest?.message).toBe("initial commit");
-  });
-
-  it("can write files and commit them", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile("config/features.json", '{"a": 1}');
-    await repo.commit("add config");
-
-    const log = await repo.git.log();
-    expect(log.total).toBe(2);
-
-    const content = await readFile(join(repo.path, "config/features.json"), "utf-8");
+  it("creates a temp directory and allows writing/reading files", async () => {
+    project = await createTestProject();
+    await project.writeFile("config/features.json", '{"a": 1}');
+    const content = await project.readFile("config/features.json");
     expect(JSON.parse(content)).toEqual({ a: 1 });
+  });
+
+  it("creates nested directories automatically", async () => {
+    project = await createTestProject();
+    await project.writeFile("variants/acme/config/features.json", '{"b": 2}');
+    const content = await project.readFile("variants/acme/config/features.json");
+    expect(JSON.parse(content)).toEqual({ b: 2 });
   });
 });
 ```
 
 **Step 3: Run test to verify it passes**
 
-Run: `npx vitest run tests/helpers/test-repo.test.ts`
+Run: `npx vitest run tests/helpers/test-project.test.ts`
 Expected: 2 tests PASS
 
 **Step 4: Commit**
 
 ```bash
 git add tests/helpers/
-git commit -m "test: add temp git repo factory for integration tests"
+git commit -m "test: add temp project factory for integration tests"
 ```
 
 ---
@@ -290,55 +261,66 @@ Parses `.variantform.yaml` and returns typed surface declarations.
 
 ```typescript
 import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "./helpers/test-repo.js";
-import { loadConfig, VariantformConfig } from "../src/config.js";
+import { createTestProject, TestProject } from "./helpers/test-project.js";
+import { loadConfig } from "../src/config.js";
 
 describe("loadConfig", () => {
-  let repo: TestRepo;
+  let project: TestProject;
 
   afterEach(async () => {
-    await repo?.cleanup();
+    await project?.cleanup();
   });
 
   it("parses .variantform.yaml with surface declarations", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile(
+    project = await createTestProject();
+    await project.writeFile(
       ".variantform.yaml",
       `surfaces:
   - path: "config/features.json"
     format: json
+    strategy: merge
   - path: "config/theme.json"
     format: json
+    strategy: replace
   - path: "config/workflows/*.yaml"
     format: yaml
+    strategy: merge
 `
     );
 
-    const config = await loadConfig(repo.path);
+    const config = await loadConfig(project.path);
     expect(config.surfaces).toHaveLength(3);
     expect(config.surfaces[0]).toEqual({
       path: "config/features.json",
       format: "json",
+      strategy: "merge",
     });
-    expect(config.surfaces[2]).toEqual({
-      path: "config/workflows/*.yaml",
-      format: "yaml",
-    });
+    expect(config.surfaces[1].strategy).toBe("replace");
+  });
+
+  it("defaults strategy to merge when not specified", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "config/features.json"
+    format: json
+`
+    );
+
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0].strategy).toBe("merge");
   });
 
   it("throws if .variantform.yaml is missing", async () => {
-    repo = await createTestRepo();
-    await expect(loadConfig(repo.path)).rejects.toThrow(
-      ".variantform.yaml not found"
-    );
+    project = await createTestProject();
+    await expect(loadConfig(project.path)).rejects.toThrow(".variantform.yaml not found");
   });
 
   it("throws if surfaces array is missing", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile(".variantform.yaml", "version: 1\n");
-    await expect(loadConfig(repo.path)).rejects.toThrow(
-      "surfaces"
-    );
+    project = await createTestProject();
+    await project.writeFile(".variantform.yaml", "version: 1\n");
+    await expect(loadConfig(project.path)).rejects.toThrow("surfaces");
   });
 });
 ```
@@ -346,7 +328,7 @@ describe("loadConfig", () => {
 **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run tests/config.test.ts`
-Expected: FAIL -- module `../src/config.js` not found or `loadConfig` not defined
+Expected: FAIL
 
 **Step 3: Write minimal implementation**
 
@@ -355,9 +337,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
 
+export type MergeStrategy = "merge" | "replace";
+
 export interface Surface {
   path: string;
   format: "json" | "yaml";
+  strategy: MergeStrategy;
 }
 
 export interface VariantformConfig {
@@ -385,7 +370,11 @@ export async function loadConfig(repoPath: string): Promise<VariantformConfig> {
     if (typeof surface.path !== "string" || typeof surface.format !== "string") {
       throw new Error("Each surface must have 'path' (string) and 'format' (string)");
     }
-    return { path: surface.path, format: surface.format as Surface["format"] };
+    return {
+      path: surface.path,
+      format: surface.format as Surface["format"],
+      strategy: (surface.strategy as MergeStrategy) || "merge",
+    };
   });
 
   return { surfaces };
@@ -395,703 +384,191 @@ export async function loadConfig(repoPath: string): Promise<VariantformConfig> {
 **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run tests/config.test.ts`
-Expected: 3 tests PASS
-
-**Step 5: Commit**
-
-```bash
-git add src/config.ts tests/config.test.ts
-git commit -m "feat: config module to parse .variantform.yaml surface declarations"
-```
-
----
-
-### Task 4: Git Module
-
-Wraps git operations needed by all commands: list variant branches, get current branch, check sync status.
-
-**Files:**
-- Create: `src/git.ts`
-- Create: `tests/git.test.ts`
-
-**Step 1: Write the failing test**
-
-```typescript
-import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "./helpers/test-repo.js";
-import { VariantGit } from "../src/git.js";
-
-describe("VariantGit", () => {
-  let repo: TestRepo;
-
-  afterEach(async () => {
-    await repo?.cleanup();
-  });
-
-  it("lists variant branches", async () => {
-    repo = await createTestRepo();
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.git.checkout("main");
-    await repo.git.checkoutLocalBranch("variant/globex");
-    await repo.git.checkout("main");
-    // Non-variant branch should be excluded
-    await repo.git.checkoutLocalBranch("feature/unrelated");
-    await repo.git.checkout("main");
-
-    const vg = new VariantGit(repo.path);
-    const variants = await vg.listVariants();
-    expect(variants).toEqual(["acme", "globex"]);
-  });
-
-  it("returns empty array when no variants exist", async () => {
-    repo = await createTestRepo();
-    const vg = new VariantGit(repo.path);
-    const variants = await vg.listVariants();
-    expect(variants).toEqual([]);
-  });
-
-  it("gets the main branch HEAD commit", async () => {
-    repo = await createTestRepo();
-    const vg = new VariantGit(repo.path);
-    const head = await vg.getMainHead();
-    expect(head).toMatch(/^[a-f0-9]{40}$/);
-  });
-
-  it("checks if a variant is synced with main", async () => {
-    repo = await createTestRepo();
-    // Create variant at current main HEAD
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.git.checkout("main");
-
-    const vg = new VariantGit(repo.path);
-    // Variant is at same commit as main, so it's synced
-    expect(await vg.isVariantSynced("acme")).toBe(true);
-
-    // Now add a commit to main
-    await repo.writeFile("src/app.ts", "console.log('hello');");
-    await repo.commit("add app");
-
-    // Variant is now behind main
-    expect(await vg.isVariantSynced("acme")).toBe(false);
-  });
-});
-```
-
-**Step 2: Run test to verify it fails**
-
-Run: `npx vitest run tests/git.test.ts`
-Expected: FAIL -- `VariantGit` not defined
-
-**Step 3: Write minimal implementation**
-
-```typescript
-import { simpleGit, SimpleGit } from "simple-git";
-
-const VARIANT_PREFIX = "variant/";
-
-export class VariantGit {
-  private git: SimpleGit;
-
-  constructor(repoPath: string) {
-    this.git = simpleGit(repoPath);
-  }
-
-  /** List all variant names (without the variant/ prefix) */
-  async listVariants(): Promise<string[]> {
-    const branches = await this.git.branchLocal();
-    return branches.all
-      .filter((b) => b.startsWith(VARIANT_PREFIX))
-      .map((b) => b.slice(VARIANT_PREFIX.length))
-      .sort();
-  }
-
-  /** Get the HEAD commit hash of main */
-  async getMainHead(): Promise<string> {
-    const log = await this.git.log({ maxCount: 1, from: "main" });
-    return log.latest!.hash;
-  }
-
-  /** Check if a variant branch contains the latest main HEAD */
-  async isVariantSynced(variantName: string): Promise<boolean> {
-    const mainHead = await this.getMainHead();
-    const branchName = VARIANT_PREFIX + variantName;
-    // Check if main's HEAD is an ancestor of the variant branch
-    try {
-      await this.git.raw([
-        "merge-base",
-        "--is-ancestor",
-        mainHead,
-        branchName,
-      ]);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /** Get the count of files that differ between main and a variant */
-  async getVariantDiffCount(variantName: string): Promise<number> {
-    const branchName = VARIANT_PREFIX + variantName;
-    const diff = await this.git.diff(["--name-only", "main..." + branchName]);
-    if (!diff.trim()) return 0;
-    return diff.trim().split("\n").length;
-  }
-
-  /** Get the list of files that differ between main and a variant */
-  async getVariantDiffFiles(variantName: string): Promise<string[]> {
-    const branchName = VARIANT_PREFIX + variantName;
-    const diff = await this.git.diff(["--name-only", "main..." + branchName]);
-    if (!diff.trim()) return [];
-    return diff.trim().split("\n");
-  }
-
-  /** Get the underlying simple-git instance for advanced operations */
-  get raw(): SimpleGit {
-    return this.git;
-  }
-}
-```
-
-**Step 4: Run test to verify it passes**
-
-Run: `npx vitest run tests/git.test.ts`
 Expected: 4 tests PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/git.ts tests/git.test.ts
-git commit -m "feat: git module with variant branch listing and sync detection"
+git add src/config.ts tests/config.test.ts
+git commit -m "feat: config module with surface declarations and merge strategies"
 ```
 
 ---
 
-### Task 5: JSON 3-Way Merge Driver
+### Task 4: JSON/YAML Deep Merge (RFC 7396)
 
-The core differentiator. Performs a 3-way merge on JSON files: preserves variant overrides, adds new upstream keys, flags true conflicts.
+The core merge engine. Applies an override (partial patch) on top of a base using JSON Merge Patch semantics. Much simpler than the 3-way merge from the branch approach -- this is just 2-way (base + override).
 
 **Files:**
-- Create: `src/merge/json-driver.ts`
-- Create: `tests/merge/json-driver.test.ts`
+- Create: `src/merge.ts`
+- Create: `tests/merge.test.ts`
 
 **Step 1: Write the failing test**
 
 ```typescript
 import { describe, it, expect } from "vitest";
-import { mergeJson, MergeResult } from "../../src/merge/json-driver.js";
+import { applyOverride, applyYamlOverride } from "../src/merge.js";
 
-describe("mergeJson", () => {
-  it("preserves variant overrides while adding new upstream keys", () => {
+describe("applyOverride (JSON)", () => {
+  it("deep merges override on top of base", () => {
     const base = { kanban: true, gantt: true, time_tracking: false, max_projects: 10 };
-    const upstream = { kanban: true, gantt: true, time_tracking: false, max_projects: 10, ai_assistant: true };
-    const variant = { kanban: true, gantt: true, time_tracking: true, max_projects: 50 };
+    const override = { time_tracking: true, max_projects: 50 };
 
-    const result = mergeJson(base, upstream, variant);
+    const result = applyOverride(base, override);
 
-    expect(result.ok).toBe(true);
-    expect(result.merged).toEqual({
+    expect(result).toEqual({
       kanban: true,
       gantt: true,
-      time_tracking: true,       // variant override preserved
-      max_projects: 50,          // variant override preserved
-      ai_assistant: true,        // new upstream key added
+      time_tracking: true,
+      max_projects: 50,
     });
-    expect(result.conflicts).toEqual([]);
   });
 
-  it("detects conflicts when both sides change the same key", () => {
-    const base = { theme: "light", max_users: 10 };
-    const upstream = { theme: "dark", max_users: 10 };
-    const variant = { theme: "ocean", max_users: 100 };
+  it("preserves base keys not in override", () => {
+    const base = { a: 1, b: 2, c: 3 };
+    const override = { b: 99 };
 
-    const result = mergeJson(base, upstream, variant);
-
-    expect(result.ok).toBe(false);
-    expect(result.conflicts).toContainEqual({
-      path: "theme",
-      base: "light",
-      upstream: "dark",
-      variant: "ocean",
-    });
-    // max_users: only variant changed it, no conflict
-    expect(result.merged?.max_users).toBe(100);
+    const result = applyOverride(base, override);
+    expect(result).toEqual({ a: 1, b: 99, c: 3 });
   });
 
-  it("handles nested objects with deep merge", () => {
+  it("adds new keys from override", () => {
+    const base = { a: 1 };
+    const override = { b: 2 };
+
+    const result = applyOverride(base, override);
+    expect(result).toEqual({ a: 1, b: 2 });
+  });
+
+  it("handles nested objects", () => {
     const base = { ui: { sidebar: true, footer: false }, limits: { storage: 10 } };
-    const upstream = { ui: { sidebar: true, footer: false, topbar: true }, limits: { storage: 10 } };
-    const variant = { ui: { sidebar: false, footer: false }, limits: { storage: 50 } };
+    const override = { ui: { sidebar: false }, limits: { storage: 50 } };
 
-    const result = mergeJson(base, upstream, variant);
-
-    expect(result.ok).toBe(true);
-    expect(result.merged).toEqual({
-      ui: { sidebar: false, footer: false, topbar: true },
+    const result = applyOverride(base, override);
+    expect(result).toEqual({
+      ui: { sidebar: false, footer: false },
       limits: { storage: 50 },
     });
   });
 
-  it("handles key removed by upstream", () => {
+  it("removes keys when override sets them to null (RFC 7396)", () => {
     const base = { a: 1, b: 2, c: 3 };
-    const upstream = { a: 1, c: 3 }; // b removed upstream
-    const variant = { a: 1, b: 2, c: 3 }; // variant didn't touch b
+    const override = { b: null };
 
-    const result = mergeJson(base, upstream, variant);
-
-    expect(result.ok).toBe(true);
-    // upstream removed b, variant didn't change it, so removal wins
-    expect(result.merged).toEqual({ a: 1, c: 3 });
+    const result = applyOverride(base, override);
+    expect(result).toEqual({ a: 1, c: 3 });
   });
 
-  it("flags conflict when upstream removes a key that variant modified", () => {
+  it("replaces arrays entirely (RFC 7396 behavior)", () => {
+    const base = { tags: ["a", "b", "c"] };
+    const override = { tags: ["x", "y"] };
+
+    const result = applyOverride(base, override);
+    expect(result).toEqual({ tags: ["x", "y"] });
+  });
+
+  it("handles empty override (returns base as-is)", () => {
     const base = { a: 1, b: 2 };
-    const upstream = { a: 1 }; // b removed upstream
-    const variant = { a: 1, b: 99 }; // variant modified b
+    const override = {};
 
-    const result = mergeJson(base, upstream, variant);
+    const result = applyOverride(base, override);
+    expect(result).toEqual({ a: 1, b: 2 });
+  });
+});
 
-    expect(result.ok).toBe(false);
-    expect(result.conflicts.length).toBe(1);
-    expect(result.conflicts[0].path).toBe("b");
+describe("applyYamlOverride", () => {
+  it("merges YAML strings using JSON merge logic", () => {
+    const base = "auto_assign: false\nnotifications: true\n";
+    const override = "auto_assign: true\n";
+
+    const result = applyYamlOverride(base, override);
+    expect(result).toContain("auto_assign: true");
+    expect(result).toContain("notifications: true");
   });
 });
 ```
 
 **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run tests/merge/json-driver.test.ts`
-Expected: FAIL -- module not found
-
-**Step 3: Write minimal implementation**
-
-```typescript
-export interface MergeConflict {
-  path: string;
-  base: unknown;
-  upstream: unknown;
-  variant: unknown;
-}
-
-export interface MergeResult {
-  ok: boolean;
-  merged: Record<string, unknown> | null;
-  conflicts: MergeConflict[];
-}
-
-/**
- * 3-way deep merge for JSON objects.
- *
- * Logic per key:
- * - If only upstream changed it (variant matches base): take upstream value
- * - If only variant changed it (upstream matches base): take variant value
- * - If both changed it to the same value: take that value
- * - If both changed it to different values: conflict
- * - If upstream added a new key: include it
- * - If variant added a new key: include it
- * - If upstream removed a key and variant didn't modify it: remove it
- * - If upstream removed a key but variant modified it: conflict
- */
-export function mergeJson(
-  base: Record<string, unknown>,
-  upstream: Record<string, unknown>,
-  variant: Record<string, unknown>
-): MergeResult {
-  const conflicts: MergeConflict[] = [];
-  const merged = deepMerge3(base, upstream, variant, "", conflicts);
-
-  return {
-    ok: conflicts.length === 0,
-    merged: merged as Record<string, unknown>,
-    conflicts,
-  };
-}
-
-function deepMerge3(
-  base: unknown,
-  upstream: unknown,
-  variant: unknown,
-  path: string,
-  conflicts: MergeConflict[]
-): unknown {
-  // If both upstream and variant are objects (and base is too), recurse
-  if (isObject(base) && isObject(upstream) && isObject(variant)) {
-    const allKeys = new Set([
-      ...Object.keys(base),
-      ...Object.keys(upstream),
-      ...Object.keys(variant),
-    ]);
-
-    const result: Record<string, unknown> = {};
-
-    for (const key of allKeys) {
-      const keyPath = path ? `${path}.${key}` : key;
-      const inBase = key in base;
-      const inUpstream = key in upstream;
-      const inVariant = key in variant;
-
-      if (!inBase && inUpstream && !inVariant) {
-        // New key added by upstream only -- include it
-        result[key] = upstream[key];
-      } else if (!inBase && !inUpstream && inVariant) {
-        // New key added by variant only -- include it
-        result[key] = variant[key];
-      } else if (!inBase && inUpstream && inVariant) {
-        // Both added the same new key
-        if (deepEqual(upstream[key], variant[key])) {
-          result[key] = upstream[key];
-        } else {
-          // Both added different values -- conflict
-          conflicts.push({ path: keyPath, base: undefined, upstream: upstream[key], variant: variant[key] });
-          result[key] = variant[key]; // default to variant
-        }
-      } else if (inBase && !inUpstream && inVariant) {
-        // Upstream removed this key
-        if (deepEqual(base[key], variant[key])) {
-          // Variant didn't modify it, so upstream removal wins
-          // (don't include in result)
-        } else {
-          // Variant modified a key that upstream removed -- conflict
-          conflicts.push({ path: keyPath, base: base[key], upstream: undefined, variant: variant[key] });
-          result[key] = variant[key]; // default to variant
-        }
-      } else if (inBase && inUpstream && !inVariant) {
-        // Variant removed this key
-        if (deepEqual(base[key], upstream[key])) {
-          // Upstream didn't modify it, variant removal wins
-        } else {
-          // Upstream modified a key that variant removed -- conflict
-          conflicts.push({ path: keyPath, base: base[key], upstream: upstream[key], variant: undefined });
-          result[key] = upstream[key]; // default to upstream
-        }
-      } else if (inBase && inUpstream && inVariant) {
-        // Key exists in all three -- 3-way merge
-        const baseVal = base[key];
-        const upVal = upstream[key];
-        const varVal = variant[key];
-
-        const upChanged = !deepEqual(baseVal, upVal);
-        const varChanged = !deepEqual(baseVal, varVal);
-
-        if (!upChanged && !varChanged) {
-          result[key] = baseVal;
-        } else if (upChanged && !varChanged) {
-          result[key] = upVal;
-        } else if (!upChanged && varChanged) {
-          result[key] = varVal;
-        } else if (deepEqual(upVal, varVal)) {
-          result[key] = upVal;
-        } else if (isObject(upVal) && isObject(varVal) && isObject(baseVal)) {
-          result[key] = deepMerge3(baseVal, upVal, varVal, keyPath, conflicts);
-        } else {
-          conflicts.push({ path: keyPath, base: baseVal, upstream: upVal, variant: varVal });
-          result[key] = varVal; // default to variant override
-        }
-      }
-    }
-
-    return result;
-  }
-
-  // Scalar values -- handled by the caller (object-level merge)
-  return variant;
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (typeof a !== typeof b) return false;
-  if (a === null || b === null) return a === b;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((val, i) => deepEqual(val, b[i]));
-  }
-  if (isObject(a) && isObject(b)) {
-    const keysA = Object.keys(a);
-    const keysB = Object.keys(b);
-    if (keysA.length !== keysB.length) return false;
-    return keysA.every((key) => key in b && deepEqual(a[key], b[key]));
-  }
-  return false;
-}
-```
-
-**Step 4: Run test to verify it passes**
-
-Run: `npx vitest run tests/merge/json-driver.test.ts`
-Expected: 5 tests PASS
-
-**Step 5: Commit**
-
-```bash
-git add src/merge/json-driver.ts tests/merge/json-driver.test.ts
-git commit -m "feat: 3-way JSON deep merge driver with conflict detection"
-```
-
----
-
-### Task 6: YAML 3-Way Merge Driver
-
-Converts YAML to JSON objects, reuses the JSON merge logic, converts back.
-
-**Files:**
-- Create: `src/merge/yaml-driver.ts`
-- Create: `tests/merge/yaml-driver.test.ts`
-
-**Step 1: Write the failing test**
-
-```typescript
-import { describe, it, expect } from "vitest";
-import { mergeYaml } from "../../src/merge/yaml-driver.js";
-
-describe("mergeYaml", () => {
-  it("merges YAML strings using 3-way JSON logic", () => {
-    const base = `
-stages:
-  - name: todo
-    color: gray
-  - name: done
-    color: green
-auto_assign: false
-`;
-    const upstream = `
-stages:
-  - name: todo
-    color: gray
-  - name: done
-    color: green
-auto_assign: false
-notifications: true
-`;
-    const variant = `
-stages:
-  - name: todo
-    color: gray
-  - name: done
-    color: green
-auto_assign: true
-`;
-
-    const result = mergeYaml(base, upstream, variant);
-
-    expect(result.ok).toBe(true);
-    expect(result.merged).toContain("auto_assign: true"); // variant override
-    expect(result.merged).toContain("notifications: true"); // upstream addition
-  });
-
-  it("detects conflicts in YAML values", () => {
-    const base = "theme: light\nmax: 10\n";
-    const upstream = "theme: dark\nmax: 10\n";
-    const variant = "theme: ocean\nmax: 100\n";
-
-    const result = mergeYaml(base, upstream, variant);
-
-    expect(result.ok).toBe(false);
-    expect(result.conflicts.length).toBe(1);
-    expect(result.conflicts[0].path).toBe("theme");
-  });
-});
-```
-
-**Step 2: Run test to verify it fails**
-
-Run: `npx vitest run tests/merge/yaml-driver.test.ts`
+Run: `npx vitest run tests/merge.test.ts`
 Expected: FAIL
 
 **Step 3: Write minimal implementation**
 
 ```typescript
 import yaml from "js-yaml";
-import { mergeJson, MergeConflict } from "./json-driver.js";
-
-export interface YamlMergeResult {
-  ok: boolean;
-  merged: string | null;
-  conflicts: MergeConflict[];
-}
-
-export function mergeYaml(
-  baseStr: string,
-  upstreamStr: string,
-  variantStr: string
-): YamlMergeResult {
-  const base = yaml.load(baseStr) as Record<string, unknown>;
-  const upstream = yaml.load(upstreamStr) as Record<string, unknown>;
-  const variant = yaml.load(variantStr) as Record<string, unknown>;
-
-  const result = mergeJson(base, upstream, variant);
-
-  if (!result.merged) {
-    return { ok: false, merged: null, conflicts: result.conflicts };
-  }
-
-  const mergedStr = yaml.dump(result.merged, { indent: 2, lineWidth: -1 });
-
-  return {
-    ok: result.ok,
-    merged: mergedStr,
-    conflicts: result.conflicts,
-  };
-}
-```
-
-**Step 4: Run test to verify it passes**
-
-Run: `npx vitest run tests/merge/yaml-driver.test.ts`
-Expected: 2 tests PASS
-
-**Step 5: Commit**
-
-```bash
-git add src/merge/yaml-driver.ts tests/merge/yaml-driver.test.ts
-git commit -m "feat: YAML merge driver (delegates to JSON 3-way merge)"
-```
-
----
-
-### Task 7: Merge Driver CLI Entry Point
-
-Creates the subcommand that git invokes as a custom merge driver: `variantform merge-driver <format> <base> <ours> <theirs>`. Reads files, runs merge, writes result.
-
-**Files:**
-- Create: `src/merge/index.ts`
-- Create: `tests/merge/driver-cli.test.ts`
-
-**Step 1: Write the failing test**
-
-```typescript
-import { describe, it, expect, afterEach } from "vitest";
-import { runMergeDriver } from "../../src/merge/index.js";
-import { mkdtemp, writeFile, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-describe("runMergeDriver", () => {
-  let tmpDir: string;
-
-  afterEach(async () => {
-    if (tmpDir) {
-      const { rm } = await import("node:fs/promises");
-      await rm(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it("merges JSON files and writes result to 'ours' path", async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "merge-test-"));
-    const basePath = join(tmpDir, "base.json");
-    const oursPath = join(tmpDir, "ours.json");
-    const theirsPath = join(tmpDir, "theirs.json");
-
-    await writeFile(basePath, JSON.stringify({ a: 1, b: 2 }));
-    await writeFile(oursPath, JSON.stringify({ a: 1, b: 2, c: 3 })); // upstream added c
-    await writeFile(theirsPath, JSON.stringify({ a: 1, b: 99 })); // variant changed b
-
-    const exitCode = await runMergeDriver("json", basePath, oursPath, theirsPath);
-
-    expect(exitCode).toBe(0);
-    const result = JSON.parse(await readFile(oursPath, "utf-8"));
-    expect(result).toEqual({ a: 1, b: 99, c: 3 });
-  });
-
-  it("returns non-zero exit code on conflict", async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "merge-test-"));
-    const basePath = join(tmpDir, "base.json");
-    const oursPath = join(tmpDir, "ours.json");
-    const theirsPath = join(tmpDir, "theirs.json");
-
-    await writeFile(basePath, JSON.stringify({ a: 1 }));
-    await writeFile(oursPath, JSON.stringify({ a: 2 })); // upstream changed
-    await writeFile(theirsPath, JSON.stringify({ a: 3 })); // variant also changed
-
-    const exitCode = await runMergeDriver("json", basePath, oursPath, theirsPath);
-
-    expect(exitCode).toBe(1);
-  });
-});
-```
-
-**Step 2: Run test to verify it fails**
-
-Run: `npx vitest run tests/merge/driver-cli.test.ts`
-Expected: FAIL
-
-**Step 3: Write minimal implementation**
-
-```typescript
-import { readFile, writeFile } from "node:fs/promises";
-import { mergeJson } from "./json-driver.js";
-import { mergeYaml } from "./yaml-driver.js";
 
 /**
- * Git custom merge driver entry point.
- * Called by git as: variantform merge-driver <format> <base> <ours> <theirs>
+ * Apply an override on top of a base object using JSON Merge Patch (RFC 7396) semantics.
  *
- * In git's merge driver protocol:
- * - %O = base (common ancestor)
- * - %A = ours (the version being merged INTO, i.e. current branch)
- * - %B = theirs (the version being merged FROM)
- *
- * The driver must write the merged result to the 'ours' path.
- * Exit 0 for clean merge, non-zero for conflict.
+ * Rules:
+ * - Override keys are deep-merged into base
+ * - null values in override mean "delete this key"
+ * - Arrays are replaced entirely (not merged element-by-element)
+ * - Nested objects are recursively merged
+ * - Keys in base but not in override are preserved
  */
-export async function runMergeDriver(
-  format: string,
-  basePath: string,
-  oursPath: string,
-  theirsPath: string
-): Promise<number> {
-  const baseContent = await readFile(basePath, "utf-8");
-  const oursContent = await readFile(oursPath, "utf-8");
-  const theirsContent = await readFile(theirsPath, "utf-8");
+export function applyOverride(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>
+): Record<string, unknown> {
+  const result = { ...base };
 
-  if (format === "json") {
-    const base = JSON.parse(baseContent);
-    const ours = JSON.parse(oursContent);
-    const theirs = JSON.parse(theirsContent);
-
-    const result = mergeJson(base, ours, theirs);
-
-    if (result.merged) {
-      await writeFile(oursPath, JSON.stringify(result.merged, null, 2) + "\n");
+  for (const [key, overrideValue] of Object.entries(override)) {
+    if (overrideValue === null) {
+      // RFC 7396: null means delete
+      delete result[key];
+    } else if (
+      isObject(overrideValue) &&
+      isObject(result[key])
+    ) {
+      // Both are objects: recurse
+      result[key] = applyOverride(
+        result[key] as Record<string, unknown>,
+        overrideValue as Record<string, unknown>
+      );
+    } else {
+      // Scalar, array, or type mismatch: override wins
+      result[key] = overrideValue;
     }
-
-    return result.ok ? 0 : 1;
   }
 
-  if (format === "yaml") {
-    const result = mergeYaml(baseContent, oursContent, theirsContent);
+  return result;
+}
 
-    if (result.merged) {
-      await writeFile(oursPath, result.merged);
-    }
+/**
+ * Apply a YAML override on top of a YAML base string.
+ * Parses both to objects, applies JSON merge, serializes back to YAML.
+ */
+export function applyYamlOverride(baseStr: string, overrideStr: string): string {
+  const base = yaml.load(baseStr) as Record<string, unknown>;
+  const override = yaml.load(overrideStr) as Record<string, unknown>;
+  const merged = applyOverride(base, override);
+  return yaml.dump(merged, { indent: 2, lineWidth: -1 });
+}
 
-    return result.ok ? 0 : 1;
-  }
-
-  console.error(`Unknown format: ${format}`);
-  return 1;
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 ```
 
 **Step 4: Run test to verify it passes**
 
-Run: `npx vitest run tests/merge/driver-cli.test.ts`
-Expected: 2 tests PASS
+Run: `npx vitest run tests/merge.test.ts`
+Expected: 8 tests PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/merge/index.ts tests/merge/driver-cli.test.ts
-git commit -m "feat: merge driver CLI entry point for git integration"
+git add src/merge.ts tests/merge.test.ts
+git commit -m "feat: JSON/YAML deep merge engine with RFC 7396 semantics"
 ```
 
 ---
 
-### Task 8: `init` Command
+### Task 5: `init` Command
 
-Creates `.variantform.yaml` with interactive surface setup, configures `.gitattributes` and git merge drivers.
+Creates `.variantform.yaml` and the `variants/` directory.
 
 **Files:**
 - Create: `src/commands/init.ts`
@@ -1101,75 +578,72 @@ Creates `.variantform.yaml` with interactive surface setup, configures `.gitattr
 
 ```typescript
 import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "../helpers/test-repo.js";
+import { createTestProject, TestProject } from "../helpers/test-project.js";
 import { runInit } from "../../src/commands/init.js";
-import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 describe("init command", () => {
-  let repo: TestRepo;
+  let project: TestProject;
 
   afterEach(async () => {
-    await repo?.cleanup();
+    await project?.cleanup();
   });
 
   it("creates .variantform.yaml with provided surfaces", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile("config/features.json", '{"a": 1}');
-    await repo.commit("add config");
+    project = await createTestProject();
 
-    await runInit(repo.path, [
-      { path: "config/features.json", format: "json" as const },
+    await runInit(project.path, [
+      { path: "config/features.json", format: "json", strategy: "merge" },
     ]);
 
-    const config = await readFile(join(repo.path, ".variantform.yaml"), "utf-8");
+    const config = await project.readFile(".variantform.yaml");
     expect(config).toContain("config/features.json");
     expect(config).toContain("format: json");
+    expect(config).toContain("strategy: merge");
   });
 
-  it("creates .gitattributes with merge driver mappings", async () => {
-    repo = await createTestRepo();
+  it("creates the variants/ directory", async () => {
+    project = await createTestProject();
 
-    await runInit(repo.path, [
-      { path: "config/features.json", format: "json" as const },
-      { path: "config/workflows/*.yaml", format: "yaml" as const },
+    await runInit(project.path, [
+      { path: "config/features.json", format: "json", strategy: "merge" },
     ]);
 
-    const attrs = await readFile(join(repo.path, ".gitattributes"), "utf-8");
-    expect(attrs).toContain("config/features.json merge=variantform-json");
-    expect(attrs).toContain("config/workflows/*.yaml merge=variantform-yaml");
+    expect(existsSync(join(project.path, "variants"))).toBe(true);
   });
 
-  it("configures git merge drivers", async () => {
-    repo = await createTestRepo();
+  it("creates a .gitkeep in variants/ so git tracks the empty directory", async () => {
+    project = await createTestProject();
 
-    await runInit(repo.path, [
-      { path: "config/features.json", format: "json" as const },
+    await runInit(project.path, [
+      { path: "config/features.json", format: "json", strategy: "merge" },
     ]);
 
-    const jsonDriver = await repo.git.raw(["config", "merge.variantform-json.driver"]);
-    expect(jsonDriver.trim()).toContain("variantform merge-driver json");
-  });
-
-  it("commits the configuration files", async () => {
-    repo = await createTestRepo();
-
-    await runInit(repo.path, [
-      { path: "config/features.json", format: "json" as const },
-    ]);
-
-    const log = await repo.git.log();
-    expect(log.latest?.message).toContain("variantform");
+    expect(existsSync(join(project.path, "variants", ".gitkeep"))).toBe(true);
   });
 
   it("throws if .variantform.yaml already exists", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile(".variantform.yaml", "surfaces: []\n");
-    await repo.commit("existing config");
+    project = await createTestProject();
+    await project.writeFile(".variantform.yaml", "surfaces: []\n");
 
     await expect(
-      runInit(repo.path, [{ path: "config/features.json", format: "json" as const }])
+      runInit(project.path, [
+        { path: "config/features.json", format: "json", strategy: "merge" },
+      ])
     ).rejects.toThrow("already initialized");
+  });
+
+  it("does NOT auto-commit", async () => {
+    project = await createTestProject();
+
+    await runInit(project.path, [
+      { path: "config/features.json", format: "json", strategy: "merge" },
+    ]);
+
+    // Files exist but no git operations were performed
+    // (user commits when ready)
+    expect(existsSync(join(project.path, ".variantform.yaml"))).toBe(true);
   });
 });
 ```
@@ -1182,18 +656,17 @@ Expected: FAIL
 **Step 3: Write minimal implementation**
 
 ```typescript
-import { writeFile, access } from "node:fs/promises";
+import { writeFile, mkdir, access } from "node:fs/promises";
 import { join } from "node:path";
-import { simpleGit } from "simple-git";
 import yaml from "js-yaml";
 import { Surface } from "../config.js";
 
 export async function runInit(
-  repoPath: string,
+  projectPath: string,
   surfaces: Surface[]
 ): Promise<void> {
-  const configPath = join(repoPath, ".variantform.yaml");
-  const attrsPath = join(repoPath, ".gitattributes");
+  const configPath = join(projectPath, ".variantform.yaml");
+  const variantsDir = join(projectPath, "variants");
 
   // Check if already initialized
   try {
@@ -1201,36 +674,21 @@ export async function runInit(
     throw new Error("already initialized: .variantform.yaml exists");
   } catch (e) {
     if (e instanceof Error && e.message.includes("already initialized")) throw e;
-    // File doesn't exist -- good
   }
 
   // Write .variantform.yaml
-  const config = { surfaces: surfaces.map((s) => ({ path: s.path, format: s.format })) };
+  const config = {
+    surfaces: surfaces.map((s) => ({
+      path: s.path,
+      format: s.format,
+      strategy: s.strategy,
+    })),
+  };
   await writeFile(configPath, yaml.dump(config, { indent: 2 }));
 
-  // Write .gitattributes
-  const attrLines = surfaces.map(
-    (s) => `${s.path} merge=variantform-${s.format}`
-  );
-  await writeFile(attrsPath, attrLines.join("\n") + "\n");
-
-  // Configure git merge drivers
-  const git = simpleGit(repoPath);
-  const formats = [...new Set(surfaces.map((s) => s.format))];
-  for (const format of formats) {
-    await git.addConfig(
-      `merge.variantform-${format}.name`,
-      `Variantform ${format.toUpperCase()} merge driver`
-    );
-    await git.addConfig(
-      `merge.variantform-${format}.driver`,
-      `variantform merge-driver ${format} %O %A %B`
-    );
-  }
-
-  // Commit
-  await git.add([".variantform.yaml", ".gitattributes"]);
-  await git.commit("chore: initialize variantform configuration");
+  // Create variants/ directory with .gitkeep
+  await mkdir(variantsDir, { recursive: true });
+  await writeFile(join(variantsDir, ".gitkeep"), "");
 }
 ```
 
@@ -1243,14 +701,14 @@ Expected: 5 tests PASS
 
 ```bash
 git add src/commands/init.ts tests/commands/init.test.ts
-git commit -m "feat: init command creates config, gitattributes, and merge drivers"
+git commit -m "feat: init command creates config and variants directory"
 ```
 
 ---
 
-### Task 9: `create` Command
+### Task 6: `create` Command
 
-Creates a new variant branch for a client.
+Creates a new variant directory.
 
 **Files:**
 - Create: `src/commands/create.ts`
@@ -1260,36 +718,55 @@ Creates a new variant branch for a client.
 
 ```typescript
 import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "../helpers/test-repo.js";
+import { createTestProject, TestProject } from "../helpers/test-project.js";
 import { runCreate } from "../../src/commands/create.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 describe("create command", () => {
-  let repo: TestRepo;
+  let project: TestProject;
 
   afterEach(async () => {
-    await repo?.cleanup();
+    await project?.cleanup();
   });
 
-  it("creates a variant branch from main", async () => {
-    repo = await createTestRepo();
-    await runCreate(repo.path, "acme-corp");
+  it("creates a variant directory", async () => {
+    project = await createTestProject();
+    await project.writeFile("variants/.gitkeep", "");
 
-    const branches = await repo.git.branchLocal();
-    expect(branches.all).toContain("variant/acme-corp");
-    // Should stay on main after creation
-    expect(branches.current).toBe("main");
+    await runCreate(project.path, "acme-corp");
+
+    expect(existsSync(join(project.path, "variants", "acme-corp"))).toBe(true);
+  });
+
+  it("creates a .gitkeep in the variant directory", async () => {
+    project = await createTestProject();
+    await project.writeFile("variants/.gitkeep", "");
+
+    await runCreate(project.path, "acme-corp");
+
+    expect(existsSync(join(project.path, "variants", "acme-corp", ".gitkeep"))).toBe(true);
   });
 
   it("throws if variant already exists", async () => {
-    repo = await createTestRepo();
-    await runCreate(repo.path, "acme-corp");
-    await expect(runCreate(repo.path, "acme-corp")).rejects.toThrow("already exists");
+    project = await createTestProject();
+    await project.writeFile("variants/acme-corp/.gitkeep", "");
+
+    await expect(runCreate(project.path, "acme-corp")).rejects.toThrow("already exists");
   });
 
   it("throws if name contains invalid characters", async () => {
-    repo = await createTestRepo();
-    await expect(runCreate(repo.path, "acme corp")).rejects.toThrow("invalid");
-    await expect(runCreate(repo.path, "acme/corp")).rejects.toThrow("invalid");
+    project = await createTestProject();
+    await project.writeFile("variants/.gitkeep", "");
+
+    await expect(runCreate(project.path, "acme corp")).rejects.toThrow("invalid");
+    await expect(runCreate(project.path, "../escape")).rejects.toThrow("invalid");
+  });
+
+  it("throws if variants/ directory does not exist", async () => {
+    project = await createTestProject();
+
+    await expect(runCreate(project.path, "acme")).rejects.toThrow("not initialized");
   });
 });
 ```
@@ -1302,12 +779,13 @@ Expected: FAIL
 **Step 3: Write minimal implementation**
 
 ```typescript
-import { simpleGit } from "simple-git";
+import { mkdir, access, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const VALID_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 
 export async function runCreate(
-  repoPath: string,
+  projectPath: string,
   clientName: string
 ): Promise<void> {
   if (!VALID_NAME.test(clientName)) {
@@ -1316,36 +794,300 @@ export async function runCreate(
     );
   }
 
-  const git = simpleGit(repoPath);
-  const branchName = `variant/${clientName}`;
+  const variantsDir = join(projectPath, "variants");
 
-  const branches = await git.branchLocal();
-  if (branches.all.includes(branchName)) {
-    throw new Error(`variant "${clientName}" already exists`);
+  // Check variants/ exists (project is initialized)
+  try {
+    await access(variantsDir);
+  } catch {
+    throw new Error("not initialized: run 'variantform init' first");
   }
 
-  // Create branch from main without switching to it
-  await git.branch([branchName, "main"]);
+  const variantDir = join(variantsDir, clientName);
+
+  // Check if variant already exists
+  try {
+    await access(variantDir);
+    throw new Error(`variant "${clientName}" already exists`);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("already exists")) throw e;
+  }
+
+  await mkdir(variantDir, { recursive: true });
+  await writeFile(join(variantDir, ".gitkeep"), "");
 }
 ```
 
 **Step 4: Run test to verify it passes**
 
 Run: `npx vitest run tests/commands/create.test.ts`
-Expected: 3 tests PASS
+Expected: 5 tests PASS
 
 **Step 5: Commit**
 
 ```bash
 git add src/commands/create.ts tests/commands/create.test.ts
-git commit -m "feat: create command to add new client variant branches"
+git commit -m "feat: create command adds new variant directories"
 ```
 
 ---
 
-### Task 10: `status` Command
+### Task 7: `resolve` Command
 
-Shows the sync state and override count for all variant branches.
+The core value command. Reads base + override, merges them, outputs the resolved config for a client.
+
+**Files:**
+- Create: `src/commands/resolve.ts`
+- Create: `tests/commands/resolve.test.ts`
+
+**Step 1: Write the failing test**
+
+```typescript
+import { describe, it, expect, afterEach } from "vitest";
+import { createTestProject, TestProject } from "../helpers/test-project.js";
+import { runResolve } from "../../src/commands/resolve.js";
+
+describe("resolve command", () => {
+  let project: TestProject;
+
+  afterEach(async () => {
+    await project?.cleanup();
+  });
+
+  it("deep merges override on top of base for JSON surface", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n    strategy: merge\n'
+    );
+    await project.writeFile(
+      "config/features.json",
+      JSON.stringify({ kanban: true, gantt: true, time_tracking: false, max_projects: 10 }, null, 2)
+    );
+    await project.writeFile(
+      "variants/acme/config/features.json",
+      JSON.stringify({ time_tracking: true, max_projects: 50 }, null, 2)
+    );
+
+    const results = await runResolve(project.path, "acme");
+
+    expect(results).toHaveLength(1);
+    expect(results[0].surface).toBe("config/features.json");
+    const resolved = JSON.parse(results[0].content);
+    expect(resolved).toEqual({
+      kanban: true,
+      gantt: true,
+      time_tracking: true,
+      max_projects: 50,
+    });
+  });
+
+  it("replaces file entirely for replace strategy", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/theme.json"\n    format: json\n    strategy: replace\n'
+    );
+    await project.writeFile(
+      "config/theme.json",
+      JSON.stringify({ color: "blue", font: "sans" }, null, 2)
+    );
+    await project.writeFile(
+      "variants/acme/config/theme.json",
+      JSON.stringify({ color: "red", font: "serif", logo: "acme.png" }, null, 2)
+    );
+
+    const results = await runResolve(project.path, "acme");
+
+    const resolved = JSON.parse(results[0].content);
+    expect(resolved).toEqual({ color: "red", font: "serif", logo: "acme.png" });
+  });
+
+  it("returns base when no override exists for a surface", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n    strategy: merge\n'
+    );
+    await project.writeFile(
+      "config/features.json",
+      JSON.stringify({ a: 1 }, null, 2)
+    );
+    // No override file for acme
+    await project.writeFile("variants/acme/.gitkeep", "");
+
+    const results = await runResolve(project.path, "acme");
+
+    const resolved = JSON.parse(results[0].content);
+    expect(resolved).toEqual({ a: 1 });
+  });
+
+  it("resolves a specific surface when specified", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n  - path: "config/theme.json"\n    format: json\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("config/theme.json", '{"color": "blue"}');
+    await project.writeFile("variants/acme/config/features.json", '{"a": 2}');
+    await project.writeFile("variants/acme/.gitkeep", "");
+
+    const results = await runResolve(project.path, "acme", "config/features.json");
+
+    expect(results).toHaveLength(1);
+    expect(results[0].surface).toBe("config/features.json");
+  });
+
+  it("throws if variant does not exist", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n'
+    );
+
+    await expect(runResolve(project.path, "nonexistent")).rejects.toThrow("not found");
+  });
+
+  it("handles YAML surfaces", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/workflow.yaml"\n    format: yaml\n    strategy: merge\n'
+    );
+    await project.writeFile("config/workflow.yaml", "auto_assign: false\nnotifications: true\n");
+    await project.writeFile("variants/acme/config/workflow.yaml", "auto_assign: true\n");
+
+    const results = await runResolve(project.path, "acme");
+
+    expect(results[0].content).toContain("auto_assign: true");
+    expect(results[0].content).toContain("notifications: true");
+  });
+});
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `npx vitest run tests/commands/resolve.test.ts`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```typescript
+import { readFile, access } from "node:fs/promises";
+import { join } from "node:path";
+import yaml from "js-yaml";
+import { loadConfig, Surface } from "../config.js";
+import { applyOverride, applyYamlOverride } from "../merge.js";
+import fg from "fast-glob";
+
+export interface ResolveResult {
+  surface: string;
+  content: string;
+  hasOverride: boolean;
+}
+
+export async function runResolve(
+  projectPath: string,
+  variantName: string,
+  surfaceFilter?: string
+): Promise<ResolveResult[]> {
+  const config = await loadConfig(projectPath);
+  const variantDir = join(projectPath, "variants", variantName);
+
+  // Check variant exists
+  try {
+    await access(variantDir);
+  } catch {
+    throw new Error(`variant "${variantName}" not found`);
+  }
+
+  // Expand glob patterns in surfaces
+  const expandedSurfaces = await expandSurfaces(projectPath, config.surfaces);
+
+  // Filter to specific surface if requested
+  const surfaces = surfaceFilter
+    ? expandedSurfaces.filter((s) => s.path === surfaceFilter)
+    : expandedSurfaces;
+
+  const results: ResolveResult[] = [];
+
+  for (const surface of surfaces) {
+    const basePath = join(projectPath, surface.path);
+    const overridePath = join(variantDir, surface.path);
+
+    const baseContent = await readFile(basePath, "utf-8");
+
+    let hasOverride = false;
+    let overrideContent: string | null = null;
+    try {
+      overrideContent = await readFile(overridePath, "utf-8");
+      hasOverride = true;
+    } catch {
+      // No override -- use base as-is
+    }
+
+    let content: string;
+
+    if (!hasOverride || !overrideContent) {
+      content = baseContent;
+    } else if (surface.strategy === "replace") {
+      content = overrideContent;
+    } else if (surface.format === "json") {
+      const base = JSON.parse(baseContent);
+      const override = JSON.parse(overrideContent);
+      const merged = applyOverride(base, override);
+      content = JSON.stringify(merged, null, 2);
+    } else if (surface.format === "yaml") {
+      content = applyYamlOverride(baseContent, overrideContent);
+    } else {
+      content = baseContent;
+    }
+
+    results.push({ surface: surface.path, content, hasOverride });
+  }
+
+  return results;
+}
+
+async function expandSurfaces(
+  projectPath: string,
+  surfaces: Surface[]
+): Promise<Surface[]> {
+  const expanded: Surface[] = [];
+
+  for (const surface of surfaces) {
+    if (surface.path.includes("*")) {
+      const matches = await fg(surface.path, { cwd: projectPath });
+      for (const match of matches.sort()) {
+        expanded.push({ ...surface, path: match });
+      }
+    } else {
+      expanded.push(surface);
+    }
+  }
+
+  return expanded;
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `npx vitest run tests/commands/resolve.test.ts`
+Expected: 6 tests PASS
+
+**Step 5: Commit**
+
+```bash
+git add src/commands/resolve.ts tests/commands/resolve.test.ts
+git commit -m "feat: resolve command merges base + overrides for a client variant"
+```
+
+---
+
+### Task 8: `status` Command
+
+Shows all variants and their override state.
 
 **Files:**
 - Create: `src/commands/status.ts`
@@ -1355,57 +1097,63 @@ Shows the sync state and override count for all variant branches.
 
 ```typescript
 import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "../helpers/test-repo.js";
-import { runStatus, VariantStatus } from "../../src/commands/status.js";
+import { createTestProject, TestProject } from "../helpers/test-project.js";
+import { runStatus } from "../../src/commands/status.js";
 
 describe("status command", () => {
-  let repo: TestRepo;
+  let project: TestProject;
 
   afterEach(async () => {
-    await repo?.cleanup();
+    await project?.cleanup();
   });
 
-  it("reports synced variants with override counts", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile("config/features.json", '{"a": 1}');
-    await repo.commit("add config");
+  it("lists all variants with override counts", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n  - path: "config/theme.json"\n    format: json\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("config/theme.json", '{"color": "blue"}');
+    // Acme overrides 1 surface
+    await project.writeFile("variants/acme/config/features.json", '{"a": 2}');
+    // Globex overrides 2 surfaces
+    await project.writeFile("variants/globex/config/features.json", '{"a": 3}');
+    await project.writeFile("variants/globex/config/theme.json", '{"color": "red"}');
 
-    // Create variant and add an override
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.writeFile("config/features.json", '{"a": 1, "b": 2}');
-    await repo.commit("customize acme");
-    await repo.git.checkout("main");
+    const statuses = await runStatus(project.path);
 
-    const statuses = await runStatus(repo.path);
-
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0].name).toBe("acme");
-    expect(statuses[0].synced).toBe(true);
-    expect(statuses[0].overrideCount).toBe(1); // 1 file differs
-  });
-
-  it("reports unsynced variants when main moves ahead", async () => {
-    repo = await createTestRepo();
-
-    // Create variant at current main
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.git.checkout("main");
-
-    // Move main ahead
-    await repo.writeFile("src/app.ts", "console.log('new');");
-    await repo.commit("new feature on main");
-
-    const statuses = await runStatus(repo.path);
-
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0].name).toBe("acme");
-    expect(statuses[0].synced).toBe(false);
+    expect(statuses).toHaveLength(2);
+    expect(statuses.find((s) => s.name === "acme")?.overrideCount).toBe(1);
+    expect(statuses.find((s) => s.name === "globex")?.overrideCount).toBe(2);
   });
 
   it("returns empty array when no variants exist", async () => {
-    repo = await createTestRepo();
-    const statuses = await runStatus(repo.path);
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n'
+    );
+    await project.writeFile("variants/.gitkeep", "");
+
+    const statuses = await runStatus(project.path);
     expect(statuses).toEqual([]);
+  });
+
+  it("detects extraneous override files (not matching any surface)", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("variants/rogue/config/features.json", '{"a": 2}');
+    await project.writeFile("variants/rogue/src/hack.ts", "// should not be here");
+
+    const statuses = await runStatus(project.path);
+
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0].violations).toContain("src/hack.ts");
   });
 });
 ```
@@ -1418,25 +1166,75 @@ Expected: FAIL
 **Step 3: Write minimal implementation**
 
 ```typescript
-import { VariantGit } from "../git.js";
+import { readdir, access } from "node:fs/promises";
+import { join } from "node:path";
+import fg from "fast-glob";
+import { loadConfig } from "../config.js";
 
 export interface VariantStatus {
   name: string;
-  synced: boolean;
   overrideCount: number;
+  overrides: string[];
+  violations: string[];
 }
 
-export async function runStatus(repoPath: string): Promise<VariantStatus[]> {
-  const vg = new VariantGit(repoPath);
-  const variants = await vg.listVariants();
+export async function runStatus(projectPath: string): Promise<VariantStatus[]> {
+  const config = await loadConfig(projectPath);
+  const variantsDir = join(projectPath, "variants");
+
+  // List variant directories
+  let entries: string[];
+  try {
+    const dirEntries = await readdir(variantsDir, { withFileTypes: true });
+    entries = dirEntries
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
+  }
+
+  const surfacePatterns = config.surfaces.map((s) => s.path);
 
   const statuses: VariantStatus[] = [];
 
-  for (const name of variants) {
-    const synced = await vg.isVariantSynced(name);
-    const overrideCount = await vg.getVariantDiffCount(name);
+  for (const name of entries) {
+    const variantDir = join(variantsDir, name);
 
-    statuses.push({ name, synced, overrideCount });
+    // Find all files in this variant directory (excluding .gitkeep)
+    const allFiles = await fg("**/*", {
+      cwd: variantDir,
+      ignore: [".gitkeep"],
+      dot: false,
+    });
+
+    // Separate into valid overrides and violations
+    const overrides: string[] = [];
+    const violations: string[] = [];
+
+    for (const file of allFiles) {
+      const matchesSurface = surfacePatterns.some((pattern) => {
+        if (pattern.includes("*")) {
+          return fg.isDynamicPattern(pattern) && new RegExp(
+            "^" + pattern.replace(/\./g, "\\.").replace(/\*/g, ".*") + "$"
+          ).test(file);
+        }
+        return file === pattern;
+      });
+
+      if (matchesSurface) {
+        overrides.push(file);
+      } else {
+        violations.push(file);
+      }
+    }
+
+    statuses.push({
+      name,
+      overrideCount: overrides.length,
+      overrides,
+      violations,
+    });
   }
 
   return statuses;
@@ -1452,206 +1250,14 @@ Expected: 3 tests PASS
 
 ```bash
 git add src/commands/status.ts tests/commands/status.test.ts
-git commit -m "feat: status command showing variant sync state and override counts"
+git commit -m "feat: status command lists variants with override counts and violations"
 ```
 
 ---
 
-### Task 11: `sync` Command
+### Task 9: `diff` Command
 
-The core command. Rebases all variant branches onto latest main, using format-aware merge for surface files.
-
-**Files:**
-- Create: `src/commands/sync.ts`
-- Create: `tests/commands/sync.test.ts`
-
-**Step 1: Write the failing test**
-
-```typescript
-import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "../helpers/test-repo.js";
-import { runSync, SyncResult } from "../../src/commands/sync.js";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { loadConfig } from "../../src/config.js";
-
-describe("sync command", () => {
-  let repo: TestRepo;
-
-  afterEach(async () => {
-    await repo?.cleanup();
-  });
-
-  it("rebases variant branches onto latest main", async () => {
-    repo = await createTestRepo();
-
-    // Create variant at current main
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.writeFile("config/override.txt", "acme-custom");
-    await repo.commit("acme customization");
-    await repo.git.checkout("main");
-
-    // Move main ahead
-    await repo.writeFile("src/app.ts", "console.log('new');");
-    await repo.commit("new feature");
-
-    const results = await runSync(repo.path);
-
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe("acme");
-    expect(results[0].status).toBe("synced");
-
-    // Verify variant now includes main's latest commit
-    await repo.git.checkout("variant/acme");
-    const appContent = await readFile(join(repo.path, "src/app.ts"), "utf-8");
-    expect(appContent).toBe("console.log('new');");
-
-    // Verify variant's customization is preserved
-    const override = await readFile(join(repo.path, "config/override.txt"), "utf-8");
-    expect(override).toBe("acme-custom");
-  });
-
-  it("reports conflict when rebase fails", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile("file.txt", "original");
-    await repo.commit("add file");
-
-    // Create variant that modifies the same file
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.writeFile("file.txt", "variant-change");
-    await repo.commit("acme change");
-    await repo.git.checkout("main");
-
-    // Main also modifies the same file
-    await repo.writeFile("file.txt", "main-change");
-    await repo.commit("main change");
-
-    const results = await runSync(repo.path);
-
-    expect(results).toHaveLength(1);
-    expect(results[0].name).toBe("acme");
-    expect(results[0].status).toBe("conflict");
-  });
-
-  it("syncs multiple variants independently", async () => {
-    repo = await createTestRepo();
-
-    // Create two variants
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.git.checkout("main");
-    await repo.git.checkoutLocalBranch("variant/globex");
-    await repo.git.checkout("main");
-
-    // Move main ahead
-    await repo.writeFile("src/feature.ts", "new feature");
-    await repo.commit("add feature");
-
-    const results = await runSync(repo.path);
-
-    expect(results).toHaveLength(2);
-    expect(results.every((r) => r.status === "synced")).toBe(true);
-  });
-
-  it("skips variants already synced", async () => {
-    repo = await createTestRepo();
-
-    // Create variant at current main (already synced)
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.git.checkout("main");
-
-    const results = await runSync(repo.path);
-
-    expect(results).toHaveLength(1);
-    expect(results[0].status).toBe("up-to-date");
-  });
-});
-```
-
-**Step 2: Run test to verify it fails**
-
-Run: `npx vitest run tests/commands/sync.test.ts`
-Expected: FAIL
-
-**Step 3: Write minimal implementation**
-
-```typescript
-import { simpleGit } from "simple-git";
-import { VariantGit } from "../git.js";
-
-export interface SyncResult {
-  name: string;
-  status: "synced" | "conflict" | "up-to-date";
-  error?: string;
-}
-
-export async function runSync(repoPath: string): Promise<SyncResult[]> {
-  const vg = new VariantGit(repoPath);
-  const git = vg.raw;
-
-  const variants = await vg.listVariants();
-  const results: SyncResult[] = [];
-
-  // Save current branch to return to after sync
-  const currentBranch = (await git.branchLocal()).current;
-
-  for (const name of variants) {
-    // Check if already synced
-    if (await vg.isVariantSynced(name)) {
-      results.push({ name, status: "up-to-date" });
-      continue;
-    }
-
-    const branchName = `variant/${name}`;
-
-    try {
-      // Checkout variant branch and rebase onto main
-      await git.checkout(branchName);
-      await git.rebase(["main"]);
-      results.push({ name, status: "synced" });
-    } catch (e) {
-      // Rebase failed -- abort and report conflict
-      try {
-        await git.rebase(["--abort"]);
-      } catch {
-        // abort might fail if we're not in a rebase state
-      }
-      results.push({
-        name,
-        status: "conflict",
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
-
-  // Return to original branch
-  try {
-    await git.checkout(currentBranch);
-  } catch {
-    // If current branch was a variant that got rebased, try main
-    await git.checkout("main");
-  }
-
-  return results;
-}
-```
-
-**Step 4: Run test to verify it passes**
-
-Run: `npx vitest run tests/commands/sync.test.ts`
-Expected: 4 tests PASS
-
-**Step 5: Commit**
-
-```bash
-git add src/commands/sync.ts tests/commands/sync.test.ts
-git commit -m "feat: sync command rebases all variant branches onto latest main"
-```
-
----
-
-### Task 12: `diff` Command
-
-Shows what a specific variant overrides compared to main, filtered to surface files.
+Shows what a variant overrides compared to the base.
 
 **Files:**
 - Create: `src/commands/diff.ts`
@@ -1661,46 +1267,60 @@ Shows what a specific variant overrides compared to main, filtered to surface fi
 
 ```typescript
 import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "../helpers/test-repo.js";
-import { runDiff, DiffResult } from "../../src/commands/diff.js";
+import { createTestProject, TestProject } from "../helpers/test-project.js";
+import { runDiff } from "../../src/commands/diff.js";
 
 describe("diff command", () => {
-  let repo: TestRepo;
+  let project: TestProject;
 
   afterEach(async () => {
-    await repo?.cleanup();
+    await project?.cleanup();
   });
 
-  it("lists files that differ between main and variant", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile("config/features.json", '{"a": 1}');
-    await repo.writeFile("src/app.ts", "main code");
-    await repo.commit("setup");
+  it("shows override keys that differ from base", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n    strategy: merge\n'
+    );
+    await project.writeFile(
+      "config/features.json",
+      JSON.stringify({ a: 1, b: 2, c: 3 }, null, 2)
+    );
+    await project.writeFile(
+      "variants/acme/config/features.json",
+      JSON.stringify({ b: 99, d: 4 }, null, 2)
+    );
 
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.writeFile("config/features.json", '{"a": 1, "b": 2}');
-    await repo.commit("customize features");
-    await repo.git.checkout("main");
+    const result = await runDiff(project.path, "acme");
 
-    const result = await runDiff(repo.path, "acme");
+    expect(result).toHaveLength(1);
+    expect(result[0].surface).toBe("config/features.json");
+    expect(result[0].overrideKeys).toContain("b");
+    expect(result[0].overrideKeys).toContain("d");
+  });
 
-    expect(result.variantName).toBe("acme");
-    expect(result.files).toHaveLength(1);
-    expect(result.files[0].path).toBe("config/features.json");
+  it("returns empty when variant has no overrides", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("variants/acme/.gitkeep", "");
+
+    const result = await runDiff(project.path, "acme");
+    expect(result).toEqual([]);
   });
 
   it("throws if variant does not exist", async () => {
-    repo = await createTestRepo();
-    await expect(runDiff(repo.path, "nonexistent")).rejects.toThrow("not found");
-  });
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n'
+    );
 
-  it("returns empty files array when variant matches main", async () => {
-    repo = await createTestRepo();
-    await repo.git.checkoutLocalBranch("variant/acme");
-    await repo.git.checkout("main");
-
-    const result = await runDiff(repo.path, "acme");
-    expect(result.files).toHaveLength(0);
+    await expect(runDiff(project.path, "nonexistent")).rejects.toThrow("not found");
   });
 });
 ```
@@ -1713,35 +1333,49 @@ Expected: FAIL
 **Step 3: Write minimal implementation**
 
 ```typescript
-import { VariantGit } from "../git.js";
-
-export interface DiffFile {
-  path: string;
-}
+import { readFile, access } from "node:fs/promises";
+import { join } from "node:path";
+import { loadConfig } from "../config.js";
 
 export interface DiffResult {
-  variantName: string;
-  files: DiffFile[];
+  surface: string;
+  overrideKeys: string[];
 }
 
 export async function runDiff(
-  repoPath: string,
+  projectPath: string,
   variantName: string
-): Promise<DiffResult> {
-  const vg = new VariantGit(repoPath);
+): Promise<DiffResult[]> {
+  const config = await loadConfig(projectPath);
+  const variantDir = join(projectPath, "variants", variantName);
 
-  // Check variant exists
-  const variants = await vg.listVariants();
-  if (!variants.includes(variantName)) {
+  try {
+    await access(variantDir);
+  } catch {
     throw new Error(`variant "${variantName}" not found`);
   }
 
-  const files = await vg.getVariantDiffFiles(variantName);
+  const results: DiffResult[] = [];
 
-  return {
-    variantName,
-    files: files.map((path) => ({ path })),
-  };
+  for (const surface of config.surfaces) {
+    const overridePath = join(variantDir, surface.path);
+
+    let overrideContent: string;
+    try {
+      overrideContent = await readFile(overridePath, "utf-8");
+    } catch {
+      continue; // No override for this surface
+    }
+
+    const override = JSON.parse(overrideContent);
+    const overrideKeys = Object.keys(override);
+
+    if (overrideKeys.length > 0) {
+      results.push({ surface: surface.path, overrideKeys });
+    }
+  }
+
+  return results;
 }
 ```
 
@@ -1754,19 +1388,230 @@ Expected: 3 tests PASS
 
 ```bash
 git add src/commands/diff.ts tests/commands/diff.test.ts
-git commit -m "feat: diff command shows variant overrides vs main"
+git commit -m "feat: diff command shows override keys per surface"
 ```
 
 ---
 
-### Task 13: Wire CLI Commands
+### Task 10: `validate` Command
 
-Connect all commands to the Commander.js program in `src/cli.ts`. Add the `merge-driver` subcommand for git integration.
+Checks all overrides are valid: correct format, only touch declared surfaces, override keys exist in base.
+
+**Files:**
+- Create: `src/commands/validate.ts`
+- Create: `tests/commands/validate.test.ts`
+
+**Step 1: Write the failing test**
+
+```typescript
+import { describe, it, expect, afterEach } from "vitest";
+import { createTestProject, TestProject } from "../helpers/test-project.js";
+import { runValidate, ValidationIssue } from "../../src/commands/validate.js";
+
+describe("validate command", () => {
+  let project: TestProject;
+
+  afterEach(async () => {
+    await project?.cleanup();
+  });
+
+  it("returns no issues for valid overrides", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n    strategy: merge\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1, "b": 2}');
+    await project.writeFile("variants/acme/config/features.json", '{"a": 99}');
+
+    const issues = await runValidate(project.path);
+    expect(issues).toEqual([]);
+  });
+
+  it("detects override keys not present in base (stale overrides)", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n    strategy: merge\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile(
+      "variants/acme/config/features.json",
+      '{"a": 2, "removed_key": true}'
+    );
+
+    const issues = await runValidate(project.path);
+
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0].type).toBe("stale_key");
+    expect(issues[0].variant).toBe("acme");
+    expect(issues[0].key).toBe("removed_key");
+  });
+
+  it("detects invalid JSON in override files", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("variants/acme/config/features.json", "not valid json!!!");
+
+    const issues = await runValidate(project.path);
+
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0].type).toBe("parse_error");
+  });
+
+  it("detects extraneous files in variant directory", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/features.json"\n    format: json\n'
+    );
+    await project.writeFile("config/features.json", '{"a": 1}');
+    await project.writeFile("variants/acme/config/features.json", '{"a": 2}');
+    await project.writeFile("variants/acme/src/hack.ts", "evil code");
+
+    const issues = await runValidate(project.path);
+
+    expect(issues.some((i) => i.type === "extraneous_file")).toBe(true);
+  });
+});
+```
+
+**Step 2: Run test to verify it fails**
+
+Run: `npx vitest run tests/commands/validate.test.ts`
+Expected: FAIL
+
+**Step 3: Write minimal implementation**
+
+```typescript
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
+import fg from "fast-glob";
+import { loadConfig } from "../config.js";
+
+export interface ValidationIssue {
+  type: "stale_key" | "parse_error" | "extraneous_file";
+  variant: string;
+  surface?: string;
+  key?: string;
+  message: string;
+}
+
+export async function runValidate(projectPath: string): Promise<ValidationIssue[]> {
+  const config = await loadConfig(projectPath);
+  const variantsDir = join(projectPath, "variants");
+  const surfacePatterns = config.surfaces.map((s) => s.path);
+
+  const issues: ValidationIssue[] = [];
+
+  // List variant directories
+  let variantNames: string[];
+  try {
+    const entries = await readdir(variantsDir, { withFileTypes: true });
+    variantNames = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return [];
+  }
+
+  for (const variant of variantNames) {
+    const variantDir = join(variantsDir, variant);
+
+    // Find all files in variant
+    const allFiles = await fg("**/*", { cwd: variantDir, ignore: [".gitkeep"], dot: false });
+
+    for (const file of allFiles) {
+      // Check if file matches a declared surface
+      const matchingSurface = config.surfaces.find((s) => {
+        if (s.path.includes("*")) {
+          return new RegExp(
+            "^" + s.path.replace(/\./g, "\\.").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*") + "$"
+          ).test(file);
+        }
+        return file === s.path;
+      });
+
+      if (!matchingSurface) {
+        issues.push({
+          type: "extraneous_file",
+          variant,
+          message: `File "${file}" in variant "${variant}" does not match any declared surface`,
+        });
+        continue;
+      }
+
+      // Validate the override file
+      const overridePath = join(variantDir, file);
+      const basePath = join(projectPath, file);
+
+      if (matchingSurface.strategy === "merge" && matchingSurface.format === "json") {
+        let overrideObj: Record<string, unknown>;
+        try {
+          const content = await readFile(overridePath, "utf-8");
+          overrideObj = JSON.parse(content);
+        } catch {
+          issues.push({
+            type: "parse_error",
+            variant,
+            surface: file,
+            message: `Cannot parse "${file}" in variant "${variant}" as JSON`,
+          });
+          continue;
+        }
+
+        // Check for stale keys (override references keys not in base)
+        let baseObj: Record<string, unknown>;
+        try {
+          const baseContent = await readFile(basePath, "utf-8");
+          baseObj = JSON.parse(baseContent);
+        } catch {
+          continue; // If base doesn't exist, we can't validate keys
+        }
+
+        for (const key of Object.keys(overrideObj)) {
+          if (!(key in baseObj)) {
+            issues.push({
+              type: "stale_key",
+              variant,
+              surface: file,
+              key,
+              message: `Override key "${key}" in variant "${variant}" does not exist in base "${file}"`,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+```
+
+**Step 4: Run test to verify it passes**
+
+Run: `npx vitest run tests/commands/validate.test.ts`
+Expected: 4 tests PASS
+
+**Step 5: Commit**
+
+```bash
+git add src/commands/validate.ts tests/commands/validate.test.ts
+git commit -m "feat: validate command detects stale keys, parse errors, and extraneous files"
+```
+
+---
+
+### Task 11: Wire CLI Commands
+
+Connect all commands to the Commander.js program in `src/cli.ts`.
 
 **Files:**
 - Modify: `src/cli.ts`
 
-**Step 1: Update src/cli.ts**
+**Step 1: Update src/cli.ts with all commands**
 
 ```typescript
 #!/usr/bin/env node
@@ -1774,39 +1619,46 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { runInit } from "./commands/init.js";
 import { runCreate } from "./commands/create.js";
+import { runResolve } from "./commands/resolve.js";
 import { runStatus } from "./commands/status.js";
-import { runSync } from "./commands/sync.js";
 import { runDiff } from "./commands/diff.js";
-import { runMergeDriver } from "./merge/index.js";
+import { runValidate } from "./commands/validate.js";
 
 const program = new Command();
 
 program
   .name("variantform")
-  .description("Git-native tool for managing per-client SaaS product variants")
+  .description("Git-native overlay tool for managing per-client SaaS product variants")
   .version("0.1.0");
 
 program
   .command("init")
-  .description("Initialize variantform in the current repository")
+  .description("Initialize variantform in the current project")
   .requiredOption(
     "-s, --surface <surface...>",
-    "Surface declarations in format path:format (e.g. config/features.json:json)"
+    "Surface declarations in format path:format[:strategy] (e.g. config/features.json:json:merge)"
   )
   .action(async (opts) => {
     const surfaces = opts.surface.map((s: string) => {
-      const [path, format] = s.split(":");
+      const parts = s.split(":");
+      const [path, format, strategy] = parts;
       if (!path || !format || !["json", "yaml"].includes(format)) {
-        console.error(chalk.red(`Invalid surface: "${s}". Use path:format (e.g. config/features.json:json)`));
+        console.error(chalk.red(`Invalid surface: "${s}". Use path:format[:strategy]`));
         process.exit(1);
       }
-      return { path, format: format as "json" | "yaml" };
+      return {
+        path,
+        format: format as "json" | "yaml",
+        strategy: (strategy as "merge" | "replace") || "merge",
+      };
     });
 
     try {
       await runInit(process.cwd(), surfaces);
-      console.log(chalk.green("Variantform initialized successfully."));
+      console.log(chalk.green("Variantform initialized."));
       console.log(`  ${surfaces.length} surface(s) configured.`);
+      console.log(`  Created ${chalk.bold("variants/")} directory.`);
+      console.log(`\n  Next: ${chalk.cyan("variantform create <client-name>")}`);
     } catch (e) {
       console.error(chalk.red(`Error: ${(e as Error).message}`));
       process.exit(1);
@@ -1815,11 +1667,31 @@ program
 
 program
   .command("create <client-name>")
-  .description("Create a new client variant branch")
+  .description("Create a new client variant")
   .action(async (clientName: string) => {
     try {
       await runCreate(process.cwd(), clientName);
-      console.log(chalk.green(`Variant "${clientName}" created (branch: variant/${clientName}).`));
+      console.log(chalk.green(`Variant "${clientName}" created.`));
+      console.log(`  Directory: ${chalk.bold(`variants/${clientName}/`)}`);
+      console.log(`\n  Add overrides by creating files in that directory.`);
+    } catch (e) {
+      console.error(chalk.red(`Error: ${(e as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command("resolve <client-name> [surface]")
+  .description("Output the resolved config for a client (base + overrides)")
+  .action(async (clientName: string, surface?: string) => {
+    try {
+      const results = await runResolve(process.cwd(), clientName, surface);
+      for (const r of results) {
+        if (results.length > 1) {
+          console.log(chalk.dim(`--- ${r.surface} ${r.hasOverride ? "(overridden)" : "(base)"} ---`));
+        }
+        console.log(r.content);
+      }
     } catch (e) {
       console.error(chalk.red(`Error: ${(e as Error).message}`));
       process.exit(1);
@@ -1828,7 +1700,7 @@ program
 
 program
   .command("status")
-  .description("Show sync state of all variant branches")
+  .description("Show all variants and their override state")
   .action(async () => {
     try {
       const statuses = await runStatus(process.cwd());
@@ -1838,33 +1710,11 @@ program
       }
       console.log(`\n${chalk.bold("Variants")} (${statuses.length})\n`);
       for (const s of statuses) {
-        const icon = s.synced ? chalk.green("✓") : chalk.red("✗");
-        const statusText = s.synced ? "synced" : "drift";
-        const overrides = s.overrideCount > 0 ? `${s.overrideCount} file(s)` : "no overrides";
-        console.log(`  ${icon} ${chalk.bold(s.name.padEnd(20))} ${statusText.padEnd(10)} ${overrides}`);
-      }
-      console.log();
-    } catch (e) {
-      console.error(chalk.red(`Error: ${(e as Error).message}`));
-      process.exit(1);
-    }
-  });
-
-program
-  .command("sync")
-  .description("Sync all variant branches with latest main")
-  .action(async () => {
-    try {
-      console.log(chalk.bold("Syncing variants with main...\n"));
-      const results = await runSync(process.cwd());
-      for (const r of results) {
-        if (r.status === "synced") {
-          console.log(`  ${chalk.green("✓")} ${r.name} — synced`);
-        } else if (r.status === "up-to-date") {
-          console.log(`  ${chalk.dim("–")} ${r.name} — already up to date`);
-        } else {
-          console.log(`  ${chalk.red("✗")} ${r.name} — ${chalk.red("conflict")}`);
-        }
+        const overrides = s.overrideCount > 0 ? `${s.overrideCount} override(s)` : chalk.dim("no overrides");
+        const violations = s.violations.length > 0
+          ? chalk.red(` [${s.violations.length} violation(s)]`)
+          : "";
+        console.log(`  ${chalk.bold(s.name.padEnd(20))} ${overrides}${violations}`);
       }
       console.log();
     } catch (e) {
@@ -1875,17 +1725,20 @@ program
 
 program
   .command("diff <client-name>")
-  .description("Show what a variant overrides compared to main")
+  .description("Show what a variant overrides compared to base")
   .action(async (clientName: string) => {
     try {
-      const result = await runDiff(process.cwd(), clientName);
-      if (result.files.length === 0) {
-        console.log(`Variant "${clientName}" has no overrides (matches main).`);
+      const results = await runDiff(process.cwd(), clientName);
+      if (results.length === 0) {
+        console.log(`Variant "${clientName}" has no overrides.`);
         return;
       }
-      console.log(`\n${chalk.bold(clientName)} overrides (${result.files.length} file(s)):\n`);
-      for (const f of result.files) {
-        console.log(`  ${f.path}`);
+      console.log(`\n${chalk.bold(clientName)} overrides:\n`);
+      for (const r of results) {
+        console.log(`  ${chalk.cyan(r.surface)}`);
+        for (const key of r.overrideKeys) {
+          console.log(`    ${chalk.yellow(key)}`);
+        }
       }
       console.log();
     } catch (e) {
@@ -1894,13 +1747,31 @@ program
     }
   });
 
-// Hidden subcommand invoked by git as a custom merge driver
 program
-  .command("merge-driver <format> <base> <ours> <theirs>", { hidden: true })
-  .description("Git merge driver (invoked by git, not directly by users)")
-  .action(async (format: string, base: string, ours: string, theirs: string) => {
-    const exitCode = await runMergeDriver(format, base, ours, theirs);
-    process.exit(exitCode);
+  .command("validate")
+  .description("Check all overrides are valid against current base")
+  .action(async () => {
+    try {
+      const issues = await runValidate(process.cwd());
+      if (issues.length === 0) {
+        console.log(chalk.green("All variants are valid."));
+        return;
+      }
+      console.log(chalk.red(`\n${issues.length} issue(s) found:\n`));
+      for (const issue of issues) {
+        const prefix = issue.type === "stale_key"
+          ? chalk.yellow("STALE")
+          : issue.type === "parse_error"
+          ? chalk.red("ERROR")
+          : chalk.red("EXTRA");
+        console.log(`  ${prefix} [${issue.variant}] ${issue.message}`);
+      }
+      console.log();
+      process.exit(1);
+    } catch (e) {
+      console.error(chalk.red(`Error: ${(e as Error).message}`));
+      process.exit(1);
+    }
   });
 
 program.parse();
@@ -1914,7 +1785,7 @@ Expected: No errors
 **Step 3: Verify help output works**
 
 Run: `npx tsx src/cli.ts --help`
-Expected: Shows all commands (init, create, status, sync, diff)
+Expected: Shows all commands (init, create, resolve, status, diff, validate)
 
 **Step 4: Commit**
 
@@ -1925,9 +1796,9 @@ git commit -m "feat: wire all commands into CLI entry point"
 
 ---
 
-### Task 14: End-to-End Integration Test
+### Task 12: End-to-End Integration Test
 
-A full workflow test: init → create variants → customize → sync → status → diff. Tests the complete user journey.
+Full workflow test covering the complete user journey.
 
 **Files:**
 - Create: `tests/e2e.test.ts`
@@ -1936,96 +1807,130 @@ A full workflow test: init → create variants → customize → sync → status
 
 ```typescript
 import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "./helpers/test-repo.js";
+import { createTestProject, TestProject } from "./helpers/test-project.js";
 import { runInit } from "../src/commands/init.js";
 import { runCreate } from "../src/commands/create.js";
+import { runResolve } from "../src/commands/resolve.js";
 import { runStatus } from "../src/commands/status.js";
-import { runSync } from "../src/commands/sync.js";
 import { runDiff } from "../src/commands/diff.js";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { runValidate } from "../src/commands/validate.js";
 
 describe("end-to-end workflow", () => {
-  let repo: TestRepo;
+  let project: TestProject;
 
   afterEach(async () => {
-    await repo?.cleanup();
+    await project?.cleanup();
   });
 
-  it("full lifecycle: init → create → customize → sync → status → diff", async () => {
-    repo = await createTestRepo();
+  it("full lifecycle: init → create → override → resolve → status → diff → validate", async () => {
+    project = await createTestProject();
 
-    // 1. Set up a realistic SaaS repo
-    await repo.writeFile(
+    // 1. Set up a realistic SaaS project
+    await project.writeFile(
       "config/features.json",
-      JSON.stringify({ kanban: true, gantt: true, time_tracking: false, max_projects: 10 }, null, 2)
+      JSON.stringify(
+        { kanban: true, gantt: true, time_tracking: false, max_projects: 10, ai_assistant: false },
+        null,
+        2
+      )
     );
-    await repo.writeFile("src/app.ts", "export const app = 'my-saas';");
-    await repo.commit("initial product");
+    await project.writeFile(
+      "config/theme.json",
+      JSON.stringify({ color: "blue", font: "inter" }, null, 2)
+    );
+    await project.writeFile("src/app.ts", "export const app = 'my-saas';");
 
     // 2. Initialize variantform
-    await runInit(repo.path, [
-      { path: "config/features.json", format: "json" },
+    await runInit(project.path, [
+      { path: "config/features.json", format: "json", strategy: "merge" },
+      { path: "config/theme.json", format: "json", strategy: "replace" },
     ]);
 
     // 3. Create two variants
-    await runCreate(repo.path, "acme");
-    await runCreate(repo.path, "globex");
+    await runCreate(project.path, "acme");
+    await runCreate(project.path, "globex");
 
-    // 4. Customize acme
-    await repo.git.checkout("variant/acme");
-    await repo.writeFile(
-      "config/features.json",
-      JSON.stringify({ kanban: true, gantt: true, time_tracking: true, max_projects: 50 }, null, 2)
+    // 4. Add overrides for Acme (merge strategy -- only deltas)
+    await project.writeFile(
+      "variants/acme/config/features.json",
+      JSON.stringify({ time_tracking: true, max_projects: 50 }, null, 2)
     );
-    await repo.commit("customize acme: enable time tracking, increase projects");
-    await repo.git.checkout("main");
 
-    // 5. Customize globex
-    await repo.git.checkout("variant/globex");
-    await repo.writeFile(
-      "config/features.json",
-      JSON.stringify({ kanban: true, gantt: false, time_tracking: false, max_projects: 5 }, null, 2)
+    // 5. Add overrides for Globex (merge + replace)
+    await project.writeFile(
+      "variants/globex/config/features.json",
+      JSON.stringify({ gantt: false, max_projects: 5 }, null, 2)
     );
-    await repo.commit("customize globex: disable gantt, fewer projects");
-    await repo.git.checkout("main");
+    await project.writeFile(
+      "variants/globex/config/theme.json",
+      JSON.stringify({ color: "dark-green", font: "roboto", logo: "globex.svg" }, null, 2)
+    );
 
-    // 6. Check status -- both should be synced (main hasn't moved since they branched after init)
-    let statuses = await runStatus(repo.path);
+    // 6. Resolve Acme's features
+    const acmeResults = await runResolve(project.path, "acme", "config/features.json");
+    const acmeFeatures = JSON.parse(acmeResults[0].content);
+    expect(acmeFeatures).toEqual({
+      kanban: true,
+      gantt: true,
+      time_tracking: true,    // overridden
+      max_projects: 50,       // overridden
+      ai_assistant: false,    // from base, flows through
+    });
+
+    // 7. Resolve Globex's theme (replace strategy)
+    const globexTheme = await runResolve(project.path, "globex", "config/theme.json");
+    const theme = JSON.parse(globexTheme[0].content);
+    // Replace strategy: override completely replaces base
+    expect(theme).toEqual({ color: "dark-green", font: "roboto", logo: "globex.svg" });
+
+    // 8. Check status
+    const statuses = await runStatus(project.path);
     expect(statuses).toHaveLength(2);
+    expect(statuses.find((s) => s.name === "acme")?.overrideCount).toBe(1);
+    expect(statuses.find((s) => s.name === "globex")?.overrideCount).toBe(2);
 
-    // 7. Now main evolves: add a new feature
-    await repo.writeFile("src/new-feature.ts", "export const feature = 'ai';");
-    await repo.commit("add AI feature to core");
+    // 9. Check diff
+    const acmeDiff = await runDiff(project.path, "acme");
+    expect(acmeDiff).toHaveLength(1);
+    expect(acmeDiff[0].overrideKeys).toContain("time_tracking");
+    expect(acmeDiff[0].overrideKeys).toContain("max_projects");
 
-    // 8. Check status -- variants should be out of sync
-    statuses = await runStatus(repo.path);
-    expect(statuses.every((s) => !s.synced)).toBe(true);
+    // 10. Validate -- should be clean
+    const issues = await runValidate(project.path);
+    expect(issues).toEqual([]);
 
-    // 9. Sync all variants
-    const syncResults = await runSync(repo.path);
-    expect(syncResults).toHaveLength(2);
-    expect(syncResults.every((r) => r.status === "synced")).toBe(true);
-
-    // 10. Verify variants have the new feature AND their customizations
-    await repo.git.checkout("variant/acme");
-    const acmeApp = await readFile(join(repo.path, "src/new-feature.ts"), "utf-8");
-    expect(acmeApp).toContain("ai");
-    const acmeFeatures = JSON.parse(
-      await readFile(join(repo.path, "config/features.json"), "utf-8")
+    // 11. Simulate upstream evolution: base adds a new feature
+    await project.writeFile(
+      "config/features.json",
+      JSON.stringify(
+        { kanban: true, gantt: true, time_tracking: false, max_projects: 10, ai_assistant: true },
+        null,
+        2
+      )
     );
-    expect(acmeFeatures.time_tracking).toBe(true);
-    expect(acmeFeatures.max_projects).toBe(50);
-    await repo.git.checkout("main");
 
-    // 11. Check status again -- all synced
-    statuses = await runStatus(repo.path);
-    expect(statuses.every((s) => s.synced)).toBe(true);
+    // 12. Resolve Acme again -- new feature flows through automatically!
+    const acmeAfterUpdate = await runResolve(project.path, "acme", "config/features.json");
+    const updatedFeatures = JSON.parse(acmeAfterUpdate[0].content);
+    expect(updatedFeatures.ai_assistant).toBe(true); // NEW: from updated base
+    expect(updatedFeatures.time_tracking).toBe(true); // STILL: Acme's override
+    expect(updatedFeatures.max_projects).toBe(50);    // STILL: Acme's override
 
-    // 12. Diff shows overrides
-    const acmeDiff = await runDiff(repo.path, "acme");
-    expect(acmeDiff.files.length).toBeGreaterThan(0);
-    expect(acmeDiff.files.some((f) => f.path === "config/features.json")).toBe(true);
+    // 13. Simulate base removing a key that an override references
+    await project.writeFile(
+      "config/features.json",
+      JSON.stringify(
+        { kanban: true, gantt: true, ai_assistant: true },
+        null,
+        2
+      )
+    );
+    // base removed time_tracking and max_projects, but Acme overrides them
+
+    // 14. Validate catches stale keys
+    const staleIssues = await runValidate(project.path);
+    expect(staleIssues.length).toBeGreaterThan(0);
+    expect(staleIssues.some((i) => i.type === "stale_key" && i.key === "time_tracking")).toBe(true);
   });
 });
 ```
@@ -2035,7 +1940,7 @@ describe("end-to-end workflow", () => {
 Run: `npx vitest run tests/e2e.test.ts`
 Expected: PASS
 
-**Step 3: Run all tests to verify nothing is broken**
+**Step 3: Run all tests**
 
 Run: `npx vitest run`
 Expected: All tests PASS
@@ -2049,230 +1954,20 @@ git commit -m "test: end-to-end integration test covering full variant lifecycle
 
 ---
 
-### Task 15: Surface Violation Detection
-
-Add a `validate` check to `status` that flags when a variant branch has changes outside declared surfaces. This enforces the key invariant.
+### Task 13: Package for npm and Add README
 
 **Files:**
-- Modify: `src/git.ts` (add `getChangesOutsideSurfaces` method)
-- Modify: `src/commands/status.ts` (add violation flag)
-- Create: `tests/commands/surface-violation.test.ts`
-
-**Step 1: Write the failing test**
-
-```typescript
-import { describe, it, expect, afterEach } from "vitest";
-import { createTestRepo, TestRepo } from "../helpers/test-repo.js";
-import { runInit } from "../../src/commands/init.js";
-import { runCreate } from "../../src/commands/create.js";
-import { runStatus } from "../../src/commands/status.js";
-
-describe("surface violation detection", () => {
-  let repo: TestRepo;
-
-  afterEach(async () => {
-    await repo?.cleanup();
-  });
-
-  it("flags variant with changes outside declared surfaces", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile("config/features.json", '{"a": 1}');
-    await repo.writeFile("src/app.ts", "core code");
-    await repo.commit("setup");
-
-    await runInit(repo.path, [
-      { path: "config/features.json", format: "json" },
-    ]);
-
-    await runCreate(repo.path, "rogue-client");
-
-    // Customize -- but also modify core code (violation!)
-    await repo.git.checkout("variant/rogue-client");
-    await repo.writeFile("config/features.json", '{"a": 2}');
-    await repo.writeFile("src/app.ts", "modified core code!"); // VIOLATION
-    await repo.commit("customize + violate");
-    await repo.git.checkout("main");
-
-    const statuses = await runStatus(repo.path);
-
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0].violations).toBeDefined();
-    expect(statuses[0].violations!.length).toBeGreaterThan(0);
-    expect(statuses[0].violations).toContain("src/app.ts");
-  });
-
-  it("reports no violations for clean variant", async () => {
-    repo = await createTestRepo();
-    await repo.writeFile("config/features.json", '{"a": 1}');
-    await repo.commit("setup");
-
-    await runInit(repo.path, [
-      { path: "config/features.json", format: "json" },
-    ]);
-
-    await runCreate(repo.path, "clean-client");
-    await repo.git.checkout("variant/clean-client");
-    await repo.writeFile("config/features.json", '{"a": 2}');
-    await repo.commit("customize within surfaces");
-    await repo.git.checkout("main");
-
-    const statuses = await runStatus(repo.path);
-
-    expect(statuses).toHaveLength(1);
-    expect(statuses[0].violations).toEqual([]);
-  });
-});
-```
-
-**Step 2: Run test to verify it fails**
-
-Run: `npx vitest run tests/commands/surface-violation.test.ts`
-Expected: FAIL -- `violations` property doesn't exist on `VariantStatus`
-
-**Step 3: Update `src/git.ts` -- add surface matching**
-
-Add this method to the `VariantGit` class:
-
-```typescript
-// Add to imports at top of git.ts
-import fg from "fast-glob";
-
-// Add to VariantGit class:
-
-  /** Get files changed by variant that are outside declared surface patterns */
-  async getViolations(
-    variantName: string,
-    surfacePatterns: string[]
-  ): Promise<string[]> {
-    const changedFiles = await this.getVariantDiffFiles(variantName);
-    if (changedFiles.length === 0) return [];
-
-    // Exclude .variantform.yaml and .gitattributes (created by init, always shared)
-    const excluded = new Set([".variantform.yaml", ".gitattributes"]);
-
-    return changedFiles.filter((file) => {
-      if (excluded.has(file)) return false;
-      // Check if file matches any surface pattern
-      return !surfacePatterns.some((pattern) => fg.isDynamicPattern(pattern)
-        ? fg.sync(pattern, { dot: true }).includes(file) || new RegExp(fg.convertPathToPattern(pattern).replace(/\*/g, ".*")).test(file)
-        : file === pattern
-      );
-    });
-  }
-```
-
-Actually, let me simplify the surface matching. `fast-glob`'s `isDynamicPattern` is for checking if a pattern has wildcards. For matching a file against a glob pattern, we should use `micromatch` or `picomatch`. Let me use `picomatch` which is already a dependency of `fast-glob`.
-
-**Step 3 (revised): Update `src/git.ts`**
-
-Add this method to the `VariantGit` class in `src/git.ts`:
-
-```typescript
-// Add import at top
-import picomatch from "picomatch";
-
-// Add to VariantGit class:
-
-  /** Get files changed by variant that are outside declared surface patterns */
-  async getViolations(
-    variantName: string,
-    surfacePatterns: string[]
-  ): Promise<string[]> {
-    const changedFiles = await this.getVariantDiffFiles(variantName);
-    if (changedFiles.length === 0) return [];
-
-    const excluded = new Set([".variantform.yaml", ".gitattributes"]);
-    const isMatch = picomatch(surfacePatterns);
-
-    return changedFiles.filter((file) => {
-      if (excluded.has(file)) return false;
-      return !isMatch(file);
-    });
-  }
-```
-
-Note: `picomatch` is a transitive dependency of `fast-glob`, so it's already installed. But add it as a direct dependency for clarity:
-
-Run: `npm install picomatch && npm install -D @types/picomatch`
-
-**Step 4: Update `src/commands/status.ts`**
-
-```typescript
-import { VariantGit } from "../git.js";
-import { loadConfig } from "../config.js";
-
-export interface VariantStatus {
-  name: string;
-  synced: boolean;
-  overrideCount: number;
-  violations?: string[];
-}
-
-export async function runStatus(repoPath: string): Promise<VariantStatus[]> {
-  const vg = new VariantGit(repoPath);
-  const variants = await vg.listVariants();
-
-  // Try to load config for surface violation checking
-  let surfacePatterns: string[] | null = null;
-  try {
-    const config = await loadConfig(repoPath);
-    surfacePatterns = config.surfaces.map((s) => s.path);
-  } catch {
-    // Config might not exist (e.g. in tests without init)
-  }
-
-  const statuses: VariantStatus[] = [];
-
-  for (const name of variants) {
-    const synced = await vg.isVariantSynced(name);
-    const overrideCount = await vg.getVariantDiffCount(name);
-
-    let violations: string[] = [];
-    if (surfacePatterns) {
-      violations = await vg.getViolations(name, surfacePatterns);
-    }
-
-    statuses.push({ name, synced, overrideCount, violations });
-  }
-
-  return statuses;
-}
-```
-
-**Step 5: Run test to verify it passes**
-
-Run: `npx vitest run tests/commands/surface-violation.test.ts`
-Expected: 2 tests PASS
-
-**Step 6: Run all tests**
-
-Run: `npx vitest run`
-Expected: All tests PASS
-
-**Step 7: Commit**
-
-```bash
-git add src/git.ts src/commands/status.ts tests/commands/surface-violation.test.ts package.json package-lock.json
-git commit -m "feat: surface violation detection flags changes outside declared surfaces"
-```
-
----
-
-### Task 16: Package for npm and Add README
-
-Make the CLI installable via `npm install -g variantform`.
-
-**Files:**
-- Modify: `package.json` (add `files`, `keywords`, `repository`)
+- Modify: `package.json`
 - Create: `README.md`
+- Create: `LICENSE`
 
 **Step 1: Update package.json fields**
 
-Add to `package.json`:
+Add:
 ```json
 {
   "files": ["dist", "README.md", "LICENSE"],
-  "keywords": ["saas", "variant", "customization", "git", "multi-tenant", "white-label", "cli"],
+  "keywords": ["saas", "variant", "customization", "git", "multi-tenant", "white-label", "cli", "overlay", "config"],
   "repository": {
     "type": "git",
     "url": "https://github.com/nikitadmitrieff/variantform"
@@ -2285,20 +1980,19 @@ Add to `package.json`:
 Write a README covering:
 - One-line description
 - Install: `npm install -g variantform`
-- Quick start (init, create, customize, sync, status, diff)
-- How it works (surfaces, variant branches, format-aware merge)
+- Quick start: init, create, add overrides, resolve, status, diff, validate
+- How it works: base + overlay = resolved config
+- Comparison to alternatives (feature flags, branch-per-client, Kustomize)
 - License: MIT
 
-Keep it under 150 lines. Match the tone of the design doc.
+Keep it under 150 lines.
 
-**Step 3: Create LICENSE**
-
-MIT license with current year and author name.
+**Step 3: Create LICENSE (MIT)**
 
 **Step 4: Build and verify**
 
 Run: `npx tsc`
-Expected: `dist/` directory created with compiled JS
+Expected: `dist/` directory created
 
 Run: `node dist/cli.js --help`
 Expected: Shows help with all commands
@@ -2311,7 +2005,7 @@ Expected: All tests PASS
 **Step 6: Commit**
 
 ```bash
-git add package.json README.md LICENSE dist/
+git add package.json README.md LICENSE
 git commit -m "chore: package for npm with README and license"
 ```
 
@@ -2323,26 +2017,22 @@ git commit -m "chore: package for npm with README and license"
 Task 1 (scaffolding)
   └── Task 2 (test helper)
         ├── Task 3 (config module)
-        │     └── Task 15 (surface violations) ← also depends on Task 10
-        ├── Task 4 (git module)
-        │     ├── Task 10 (status)
-        │     ├── Task 11 (sync)
-        │     └── Task 12 (diff)
-        ├── Task 5 (JSON merge driver)
-        │     └── Task 6 (YAML merge driver)
-        │           └── Task 7 (merge driver CLI)
-        └── Task 8 (init command)
-              └── Task 9 (create command)
+        ├── Task 4 (merge engine)
+        ├── Task 5 (init command)
+        │     └── Task 6 (create command)
+        ├── Task 7 (resolve command) ← depends on Tasks 3, 4
+        ├── Task 8 (status command) ← depends on Task 3
+        ├── Task 9 (diff command) ← depends on Task 3
+        └── Task 10 (validate command) ← depends on Task 3
 
-Task 13 (wire CLI) ← depends on Tasks 8-12
-Task 14 (e2e test) ← depends on Task 13
-Task 15 (violations) ← depends on Tasks 3, 4, 10
-Task 16 (packaging) ← depends on all above
+Task 11 (wire CLI) ← depends on Tasks 5-10
+Task 12 (e2e test) ← depends on Task 11
+Task 13 (packaging) ← depends on all above
 ```
 
 ## Parallel Execution Opportunities
 
-These task groups can be worked on simultaneously:
-- **Group A**: Tasks 3 (config) + 4 (git) + 5 (JSON merge)
-- **Group B**: Tasks 8 (init) + 9 (create) (after Group A)
-- **Group C**: Tasks 10 (status) + 11 (sync) + 12 (diff) (after Task 4)
+These task groups can be worked on simultaneously after Task 2:
+- **Group A**: Tasks 3 (config) + 4 (merge engine) -- no dependencies between them
+- **Group B**: Tasks 5 (init) + 6 (create) -- can start after Task 2
+- **Group C**: Tasks 7 (resolve) + 8 (status) + 9 (diff) + 10 (validate) -- after Tasks 3 + 4
