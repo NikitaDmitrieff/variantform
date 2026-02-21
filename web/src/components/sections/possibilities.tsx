@@ -1,14 +1,71 @@
 "use client";
-import { motion, useInView } from "motion/react";
-import { useRef } from "react";
+import { motion, useInView, AnimatePresence } from "motion/react";
+import { useRef, useState } from "react";
 import { CornerFrame } from "@/components/ui/corner-frame";
+import { CanvasRevealEffect } from "@/components/ui/canvas-reveal-effect";
 
 const variants = [
-  { name: "acme", color: "#06b6d4", features: "dark mode · 500 users · custom brand" },
-  { name: "globex", color: "#8b5cf6", features: "light mode · unlimited · white-label" },
-  { name: "initech", color: "#10b981", features: "SSO · audit logs · on-prem deploy" },
-  { name: "hooli", color: "#f59e0b", features: "freemium · analytics · custom domain" },
+  { name: "acme", color: "#06b6d4", rgb: [[6, 182, 212]] as number[][], features: "dark mode · 500 users · custom brand" },
+  { name: "globex", color: "#8b5cf6", rgb: [[139, 92, 246]] as number[][], features: "light mode · unlimited · white-label" },
+  { name: "initech", color: "#10b981", rgb: [[16, 185, 129]] as number[][], features: "SSO · audit logs · on-prem deploy" },
+  { name: "hooli", color: "#f59e0b", rgb: [[245, 158, 11]] as number[][], features: "freemium · analytics · custom domain" },
 ];
+
+function VariantCard({ v, isInView, delay }: { v: typeof variants[number]; isInView: boolean; delay: number }) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={isInView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.5, delay }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="group relative overflow-hidden rounded-[3px] border border-white/[0.06] bg-white/[0.02] p-5 transition-all duration-300 hover:border-white/[0.12]"
+    >
+      {/* Canvas reveal on hover */}
+      <AnimatePresence>
+        {hovered && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0"
+          >
+            <CanvasRevealEffect
+              animationSpeed={3}
+              containerClassName="bg-transparent"
+              colors={v.rgb}
+              dotSize={4}
+              showGradient={false}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Card content — above the canvas */}
+      <div className="relative z-10">
+        {/* Color accent line */}
+        <div
+          className="absolute -top-5 -left-1 -right-1 h-px"
+          style={{ background: `linear-gradient(90deg, transparent, ${v.color}40, transparent)` }}
+        />
+        <div
+          className="mb-3 flex h-7 w-7 items-center justify-center rounded-md border border-white/[0.08]"
+          style={{ background: `${v.color}15` }}
+        >
+          <span className="font-code text-[10px] font-bold" style={{ color: v.color }}>
+            {v.name[0].toUpperCase()}
+          </span>
+        </div>
+        <div className="font-display text-sm font-bold text-zinc-100">{v.name}</div>
+        <div className="mt-1 font-code text-[11px] text-zinc-600 leading-relaxed">
+          {v.features}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 export function Possibilities() {
   const ref = useRef(null);
@@ -50,31 +107,12 @@ export function Possibilities() {
           {/* Variant cards grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
             {variants.map((v, i) => (
-              <motion.div
+              <VariantCard
                 key={v.name}
-                initial={{ opacity: 0, y: 30 }}
-                animate={isInView ? { opacity: 1, y: 0 } : {}}
-                transition={{ duration: 0.5, delay: 0.6 + i * 0.1 }}
-                className="group relative rounded-[3px] border border-white/[0.06] bg-white/[0.02] p-5 transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.12]"
-              >
-                {/* Color accent line */}
-                <div
-                  className="absolute top-0 left-4 right-4 h-px"
-                  style={{ background: `linear-gradient(90deg, transparent, ${v.color}40, transparent)` }}
-                />
-                <div
-                  className="mb-3 flex h-7 w-7 items-center justify-center rounded-md border border-white/[0.08]"
-                  style={{ background: `${v.color}15` }}
-                >
-                  <span className="font-code text-[10px] font-bold" style={{ color: v.color }}>
-                    {v.name[0].toUpperCase()}
-                  </span>
-                </div>
-                <div className="font-display text-sm font-bold text-zinc-100">{v.name}</div>
-                <div className="mt-1 font-code text-[11px] text-zinc-600 leading-relaxed">
-                  {v.features}
-                </div>
-              </motion.div>
+                v={v}
+                isInView={isInView}
+                delay={0.6 + i * 0.1}
+              />
             ))}
           </div>
         </div>
