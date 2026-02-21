@@ -1,7 +1,7 @@
 import { Navigation } from "@/components/navigation";
 import { TopBrand } from "@/components/sections/top-brand";
 import { Hero } from "@/components/sections/hero";
-import { Problem } from "@/components/sections/problem";
+import { Possibilities } from "@/components/sections/possibilities";
 import { HowItWorks } from "@/components/sections/how-it-works";
 import { Commands } from "@/components/sections/commands";
 import { Comparison } from "@/components/sections/comparison";
@@ -14,7 +14,7 @@ export default function Home() {
       <Navigation />
       <TopBrand />
       <Hero />
-      <Problem />
+      <Possibilities />
       <HowItWorks />
       <Commands />
       <Comparison />
