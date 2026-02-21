@@ -65,4 +65,34 @@ describe("init command", () => {
     // Files exist but no git operations were performed
     expect(existsSync(join(project.path, ".variantform.yaml"))).toBe(true);
   });
+
+  it("creates config with css format and replace strategy", async () => {
+    project = await createTestProject();
+
+    await runInit(project.path, [
+      { path: "styles/brand.css", format: "css", strategy: "replace" },
+    ]);
+
+    const config = await project.readFile(".variantform.yaml");
+    expect(config).toContain("styles/brand.css");
+    expect(config).toContain("format: css");
+    expect(config).toContain("strategy: replace");
+  });
+
+  it("creates config with mixed format types", async () => {
+    project = await createTestProject();
+
+    await runInit(project.path, [
+      { path: "config/features.json", format: "json", strategy: "merge" },
+      { path: "styles/brand.css", format: "css", strategy: "replace" },
+      { path: "public/logo.svg", format: "asset", strategy: "replace" },
+      { path: "content/landing.md", format: "markdown", strategy: "replace" },
+    ]);
+
+    const config = await project.readFile(".variantform.yaml");
+    expect(config).toContain("format: json");
+    expect(config).toContain("format: css");
+    expect(config).toContain("format: asset");
+    expect(config).toContain("format: markdown");
+  });
 });

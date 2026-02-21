@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import chalk from "chalk";
+import { VALID_FORMATS, MERGEABLE_FORMATS } from "./config.js";
 import { runInit } from "./commands/init.js";
 import { runCreate } from "./commands/create.js";
 import { runResolve } from "./commands/resolve.js";
@@ -26,18 +27,19 @@ program
     const surfaces = opts.surface.map((s: string) => {
       const parts = s.split(":");
       const [path, format, strategy] = parts;
-      if (!path || !format || !["json", "yaml"].includes(format)) {
-        console.error(chalk.red(`Invalid surface: "${s}". Use path:format[:strategy]`));
+      if (!path || !format || !VALID_FORMATS.includes(format as any)) {
+        console.error(chalk.red(`Invalid surface: "${s}". Use path:format[:strategy]. Format must be one of: ${VALID_FORMATS.join(", ")}`));
         process.exit(1);
       }
       if (strategy && !["merge", "replace"].includes(strategy)) {
         console.error(chalk.red(`Invalid strategy "${strategy}". Must be "merge" or "replace".`));
         process.exit(1);
       }
+      const defaultStrategy = MERGEABLE_FORMATS.includes(format as any) ? "merge" : "replace";
       return {
         path,
-        format: format as "json" | "yaml",
-        strategy: (strategy as "merge" | "replace") || "merge",
+        format: format as any,
+        strategy: (strategy as "merge" | "replace") || defaultStrategy,
       };
     });
 
