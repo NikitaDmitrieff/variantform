@@ -1,5 +1,6 @@
 import yaml from "js-yaml";
 import { isObject } from "./merge";
+import type { SurfaceFormat } from "./types";
 
 export type ValidationSeverity = "error" | "warning";
 
@@ -17,10 +18,22 @@ export function validateOverride(
   overrideContent: string,
   baseContent: string,
   surfacePath: string,
-  format: "json" | "yaml",
+  format: SurfaceFormat,
   strategy: "merge" | "replace"
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+
+  // For non-json/yaml formats, skip parse validation
+  if (!["json", "yaml"].includes(format)) {
+    if (overrideContent.trim().length === 0) {
+      issues.push({
+        severity: "warning",
+        surface: surfacePath,
+        message: "Override file is empty",
+      });
+    }
+    return issues;
+  }
 
   // Parse base
   let baseParsed: unknown;

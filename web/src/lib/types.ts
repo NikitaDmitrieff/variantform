@@ -10,9 +10,11 @@ export interface Project {
   variant_count?: number;
 }
 
+export type SurfaceFormat = "json" | "yaml" | "css" | "code" | "markdown" | "asset" | "template" | "text";
+
 export interface Surface {
   path: string;
-  format: "json" | "yaml";
+  format: SurfaceFormat;
   strategy: "merge" | "replace";
   base_content: string;
 }

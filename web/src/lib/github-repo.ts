@@ -1,5 +1,6 @@
 import { getInstallationOctokit, parseRepo } from "./github";
 import yaml from "js-yaml";
+import type { SurfaceFormat } from "./types";
 
 interface RepoContext {
   octokit: { request: Function };
@@ -36,10 +37,12 @@ export async function fetchConfig(ctx: RepoContext) {
     throw new Error(".variantform.yaml must contain a 'surfaces' array");
   }
 
+  const MERGEABLE_FORMATS: SurfaceFormat[] = ["json", "yaml"];
+
   return parsed.surfaces.map((s: any) => ({
     path: s.path as string,
-    format: s.format as "json" | "yaml",
-    strategy: (s.strategy || "merge") as "merge" | "replace",
+    format: s.format as SurfaceFormat,
+    strategy: (s.strategy || (MERGEABLE_FORMATS.includes(s.format) ? "merge" : "replace")) as "merge" | "replace",
   }));
 }
 
