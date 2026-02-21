@@ -1,0 +1,29 @@
+{
+  "name": "variantform",
+  "version": "0.1.0",
+  "description": "Git-native overlay tool for managing per-client SaaS product variants",
+  "type": "module",
+  "bin": {
+    "variantform": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "chalk": "^5.4.0",
+    "commander": "^13.1.0",
+    "fast-glob": "^3.3.3",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "license": "MIT"
+}
