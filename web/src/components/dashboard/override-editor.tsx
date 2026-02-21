@@ -11,8 +11,8 @@ import type { Surface, Override } from "@/lib/types";
 interface OverrideEditorProps {
   surface: Surface;
   override: Override | null;
-  onSave: (surfaceId: string, content: string) => Promise<void>;
-  onDelete: (surfaceId: string) => Promise<void>;
+  onSave: (surfacePath: string, content: string, sha?: string) => Promise<void>;
+  onDelete: (surfacePath: string, sha: string) => Promise<void>;
 }
 
 export function OverrideEditor({
@@ -81,16 +81,17 @@ export function OverrideEditor({
   async function handleSave() {
     setSaving(true);
     try {
-      await onSave(surface.id, content);
+      await onSave(surface.path, content, override?.sha);
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete() {
+    if (!override?.sha) return;
     setDeleting(true);
     try {
-      await onDelete(surface.id);
+      await onDelete(surface.path, override.sha);
       setContent("{}");
     } finally {
       setDeleting(false);
