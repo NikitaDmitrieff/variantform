@@ -57,6 +57,35 @@ describe("validate command", () => {
     expect(issues[0].type).toBe("parse_error");
   });
 
+  it("validates YAML surfaces for parse errors", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/workflow.yaml"\n    format: yaml\n    strategy: merge\n'
+    );
+    await project.writeFile("config/workflow.yaml", "auto_assign: false\n");
+    await project.writeFile("variants/acme/config/workflow.yaml", "not: valid: yaml: [[[");
+
+    const issues = await runValidate(project.path);
+
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0].type).toBe("parse_error");
+  });
+
+  it("detects stale keys in YAML overrides", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/workflow.yaml"\n    format: yaml\n    strategy: merge\n'
+    );
+    await project.writeFile("config/workflow.yaml", "auto_assign: false\n");
+    await project.writeFile("variants/acme/config/workflow.yaml", "auto_assign: true\nremoved_field: yes\n");
+
+    const issues = await runValidate(project.path);
+
+    expect(issues.some((i) => i.type === "stale_key" && i.key === "removed_field")).toBe(true);
+  });
+
   it("detects extraneous files in variant directory", async () => {
     project = await createTestProject();
     await project.writeFile(

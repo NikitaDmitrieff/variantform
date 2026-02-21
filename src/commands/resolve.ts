@@ -39,7 +39,12 @@ export async function runResolve(
     const basePath = join(projectPath, surface.path);
     const overridePath = join(variantDir, surface.path);
 
-    const baseContent = await readFile(basePath, "utf-8");
+    let baseContent: string;
+    try {
+      baseContent = await readFile(basePath, "utf-8");
+    } catch {
+      throw new Error(`Base file not found for surface: ${surface.path}`);
+    }
 
     let hasOverride = false;
     let overrideContent: string | null = null;

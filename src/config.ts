@@ -35,10 +35,17 @@ export async function loadConfig(repoPath: string): Promise<VariantformConfig> {
     if (typeof surface.path !== "string" || typeof surface.format !== "string") {
       throw new Error("Each surface must have 'path' (string) and 'format' (string)");
     }
+    if (!["json", "yaml"].includes(surface.format as string)) {
+      throw new Error(`Invalid format "${surface.format}". Must be "json" or "yaml".`);
+    }
+    const strategy = (surface.strategy as string) || "merge";
+    if (!["merge", "replace"].includes(strategy)) {
+      throw new Error(`Invalid strategy "${surface.strategy}". Must be "merge" or "replace".`);
+    }
     return {
       path: surface.path,
       format: surface.format as Surface["format"],
-      strategy: (surface.strategy as MergeStrategy) || "merge",
+      strategy: strategy as MergeStrategy,
     };
   });
 

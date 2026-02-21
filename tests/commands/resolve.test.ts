@@ -94,6 +94,18 @@ describe("resolve command", () => {
     expect(results[0].surface).toBe("config/features.json");
   });
 
+  it("throws a clear error when base file is missing", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/missing.json"\n    format: json\n'
+    );
+    // No base file created
+    await project.writeFile("variants/acme/.gitkeep", "");
+
+    await expect(runResolve(project.path, "acme")).rejects.toThrow("Base file not found");
+  });
+
   it("throws if variant does not exist", async () => {
     project = await createTestProject();
     await project.writeFile(

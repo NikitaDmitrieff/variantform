@@ -1,4 +1,4 @@
-import { mkdir, access, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const VALID_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -15,21 +15,18 @@ export async function runCreate(
 
   const variantsDir = join(projectPath, "variants");
 
-  // Check variants/ exists (project is initialized)
-  try {
-    await access(variantsDir);
-  } catch {
+  // Check variants/ exists and is a directory (project is initialized)
+  const variantsStat = await stat(variantsDir).catch(() => null);
+  if (!variantsStat?.isDirectory()) {
     throw new Error("not initialized: run 'variantform init' first");
   }
 
   const variantDir = join(variantsDir, clientName);
 
   // Check if variant already exists
-  try {
-    await access(variantDir);
+  const variantExists = await stat(variantDir).then(() => true, () => false);
+  if (variantExists) {
     throw new Error(`variant "${clientName}" already exists`);
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("already exists")) throw e;
   }
 
   await mkdir(variantDir, { recursive: true });

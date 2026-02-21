@@ -1,7 +1,9 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import yaml from "js-yaml";
 import fg from "fast-glob";
-import { loadConfig } from "../config.js";
+import { loadConfig, Surface } from "../config.js";
+import { matchesPattern } from "../match.js";
 
 export interface ValidationIssue {
   type: "stale_key" | "parse_error" | "extraneous_file";
@@ -14,7 +16,6 @@ export interface ValidationIssue {
 export async function runValidate(projectPath: string): Promise<ValidationIssue[]> {
   const config = await loadConfig(projectPath);
   const variantsDir = join(projectPath, "variants");
-  const surfacePatterns = config.surfaces.map((s) => s.path);
 
   const issues: ValidationIssue[] = [];
 
@@ -30,19 +31,12 @@ export async function runValidate(projectPath: string): Promise<ValidationIssue[
   for (const variant of variantNames) {
     const variantDir = join(variantsDir, variant);
 
-    // Find all files in variant
-    const allFiles = await fg("**/*", { cwd: variantDir, ignore: [".gitkeep"], dot: false });
+    // Find all files in variant (dot: true to catch dotfile violations)
+    const allFiles = await fg("**/*", { cwd: variantDir, ignore: [".gitkeep"], dot: true });
 
     for (const file of allFiles) {
       // Check if file matches a declared surface
-      const matchingSurface = config.surfaces.find((s) => {
-        if (s.path.includes("*")) {
-          return new RegExp(
-            "^" + s.path.replace(/\./g, "\\.").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*") + "$"
-          ).test(file);
-        }
-        return file === s.path;
-      });
+      const matchingSurface = config.surfaces.find((s) => matchesPattern(file, s.path));
 
       if (!matchingSurface) {
         issues.push({
@@ -57,17 +51,19 @@ export async function runValidate(projectPath: string): Promise<ValidationIssue[
       const overridePath = join(variantDir, file);
       const basePath = join(projectPath, file);
 
-      if (matchingSurface.strategy === "merge" && matchingSurface.format === "json") {
+      if (matchingSurface.strategy === "merge") {
         let overrideObj: Record<string, unknown>;
         try {
           const content = await readFile(overridePath, "utf-8");
-          overrideObj = JSON.parse(content);
+          overrideObj = matchingSurface.format === "yaml"
+            ? yaml.load(content) as Record<string, unknown>
+            : JSON.parse(content);
         } catch {
           issues.push({
             type: "parse_error",
             variant,
             surface: file,
-            message: `Cannot parse "${file}" in variant "${variant}" as JSON`,
+            message: `Cannot parse "${file}" in variant "${variant}" as ${matchingSurface.format.toUpperCase()}`,
           });
           continue;
         }
@@ -76,7 +72,9 @@ export async function runValidate(projectPath: string): Promise<ValidationIssue[
         let baseObj: Record<string, unknown>;
         try {
           const baseContent = await readFile(basePath, "utf-8");
-          baseObj = JSON.parse(baseContent);
+          baseObj = matchingSurface.format === "yaml"
+            ? yaml.load(baseContent) as Record<string, unknown>
+            : JSON.parse(baseContent);
         } catch {
           continue; // If base doesn't exist, we can't validate keys
         }
@@ -91,6 +89,23 @@ export async function runValidate(projectPath: string): Promise<ValidationIssue[
               message: `Override key "${key}" in variant "${variant}" does not exist in base "${file}"`,
             });
           }
+        }
+      } else {
+        // Replace strategy: still validate the file can be parsed
+        try {
+          const content = await readFile(overridePath, "utf-8");
+          if (matchingSurface.format === "yaml") {
+            yaml.load(content);
+          } else {
+            JSON.parse(content);
+          }
+        } catch {
+          issues.push({
+            type: "parse_error",
+            variant,
+            surface: file,
+            message: `Cannot parse "${file}" in variant "${variant}" as ${matchingSurface.format.toUpperCase()}`,
+          });
         }
       }
     }

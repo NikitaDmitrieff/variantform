@@ -45,6 +45,22 @@ describe("diff command", () => {
     expect(result).toEqual([]);
   });
 
+  it("handles YAML surfaces", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "config/workflow.yaml"\n    format: yaml\n    strategy: merge\n'
+    );
+    await project.writeFile("config/workflow.yaml", "auto_assign: false\nnotifications: true\n");
+    await project.writeFile("variants/acme/config/workflow.yaml", "auto_assign: true\n");
+
+    const result = await runDiff(project.path, "acme");
+
+    expect(result).toHaveLength(1);
+    expect(result[0].surface).toBe("config/workflow.yaml");
+    expect(result[0].overrideKeys).toContain("auto_assign");
+  });
+
   it("throws if variant does not exist", async () => {
     project = await createTestProject();
     await project.writeFile(

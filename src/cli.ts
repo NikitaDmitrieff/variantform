@@ -30,6 +30,10 @@ program
         console.error(chalk.red(`Invalid surface: "${s}". Use path:format[:strategy]`));
         process.exit(1);
       }
+      if (strategy && !["merge", "replace"].includes(strategy)) {
+        console.error(chalk.red(`Invalid strategy "${strategy}". Must be "merge" or "replace".`));
+        process.exit(1);
+      }
       return {
         path,
         format: format as "json" | "yaml",

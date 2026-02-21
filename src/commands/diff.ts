@@ -1,5 +1,6 @@
 import { readFile, access } from "node:fs/promises";
 import { join } from "node:path";
+import yaml from "js-yaml";
 import { loadConfig } from "../config.js";
 
 export interface DiffResult {
@@ -32,8 +33,14 @@ export async function runDiff(
       continue; // No override for this surface
     }
 
-    const override = JSON.parse(overrideContent);
-    const overrideKeys = Object.keys(override);
+    let overrideObj: Record<string, unknown>;
+    if (surface.format === "yaml") {
+      overrideObj = yaml.load(overrideContent) as Record<string, unknown>;
+    } else {
+      overrideObj = JSON.parse(overrideContent);
+    }
+
+    const overrideKeys = Object.keys(overrideObj);
 
     if (overrideKeys.length > 0) {
       results.push({ surface: surface.path, overrideKeys });

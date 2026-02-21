@@ -1,4 +1,4 @@
-import { writeFile, mkdir, access } from "node:fs/promises";
+import { writeFile, mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import { Surface } from "../config.js";
@@ -11,11 +11,9 @@ export async function runInit(
   const variantsDir = join(projectPath, "variants");
 
   // Check if already initialized
-  try {
-    await access(configPath);
+  const exists = await stat(configPath).then(() => true, () => false);
+  if (exists) {
     throw new Error("already initialized: .variantform.yaml exists");
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("already initialized")) throw e;
   }
 
   // Write .variantform.yaml

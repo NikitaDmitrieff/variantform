@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import fg from "fast-glob";
 import { loadConfig } from "../config.js";
+import { matchesPattern } from "../match.js";
 
 export interface VariantStatus {
   name: string;
@@ -33,11 +34,11 @@ export async function runStatus(projectPath: string): Promise<VariantStatus[]> {
   for (const name of entries) {
     const variantDir = join(variantsDir, name);
 
-    // Find all files in this variant directory (excluding .gitkeep)
+    // Find all files in this variant directory (dot: true to catch dotfile violations)
     const allFiles = await fg("**/*", {
       cwd: variantDir,
       ignore: [".gitkeep"],
-      dot: false,
+      dot: true,
     });
 
     // Separate into valid overrides and violations
@@ -45,16 +46,7 @@ export async function runStatus(projectPath: string): Promise<VariantStatus[]> {
     const violations: string[] = [];
 
     for (const file of allFiles) {
-      const matchesSurface = surfacePatterns.some((pattern) => {
-        if (pattern.includes("*")) {
-          return new RegExp(
-            "^" + pattern.replace(/\./g, "\\.").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*") + "$"
-          ).test(file);
-        }
-        return file === pattern;
-      });
-
-      if (matchesSurface) {
+      if (surfacePatterns.some((pattern) => matchesPattern(file, pattern))) {
         overrides.push(file);
       } else {
         violations.push(file);

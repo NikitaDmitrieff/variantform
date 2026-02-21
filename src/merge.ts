@@ -43,8 +43,11 @@ export function applyOverride(
  * Parses both to objects, applies JSON merge, serializes back to YAML.
  */
 export function applyYamlOverride(baseStr: string, overrideStr: string): string {
-  const base = yaml.load(baseStr) as Record<string, unknown>;
-  const override = yaml.load(overrideStr) as Record<string, unknown>;
+  const base = yaml.load(baseStr);
+  const override = yaml.load(overrideStr);
+  if (!isObject(base) || !isObject(override)) {
+    throw new Error("YAML surfaces must be mappings (objects), not scalars or arrays");
+  }
   const merged = applyOverride(base, override);
   return yaml.dump(merged, { indent: 2, lineWidth: -1 });
 }
