@@ -22,6 +22,26 @@ export const TextHoverEffect = ({
   const maskId = `revealMask-${id}`;
   const textMaskId = `textMask-${id}`;
 
+  // Window-level mouse tracking — effect active from anywhere on page
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setCursor({ x: e.clientX, y: e.clientY });
+      setHovered(true);
+    };
+
+    const handleMouseLeave = () => {
+      setHovered(false);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    document.documentElement.addEventListener("mouseleave", handleMouseLeave);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      document.documentElement.removeEventListener("mouseleave", handleMouseLeave);
+    };
+  }, []);
+
   useEffect(() => {
     if (svgRef.current && cursor.x !== null && cursor.y !== null) {
       const svgRect = svgRef.current.getBoundingClientRect();
@@ -41,9 +61,6 @@ export const TextHoverEffect = ({
       height="100%"
       viewBox="0 0 550 80"
       xmlns="http://www.w3.org/2000/svg"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onMouseMove={(e) => setCursor({ x: e.clientX, y: e.clientY })}
       className="select-none"
     >
       <defs>
@@ -56,11 +73,9 @@ export const TextHoverEffect = ({
         >
           {hovered && (
             <>
-              <stop offset="0%" stopColor="#eab308" />
-              <stop offset="25%" stopColor="#ef4444" />
-              <stop offset="50%" stopColor="#3b82f6" />
-              <stop offset="75%" stopColor="#06b6d4" />
-              <stop offset="100%" stopColor="#8b5cf6" />
+              <stop offset="0%" stopColor="#1a1ab0" />
+              <stop offset="50%" stopColor="#2d2dd0" />
+              <stop offset="100%" stopColor="#1a1ab0" />
             </>
           )}
         </linearGradient>
@@ -68,7 +83,7 @@ export const TextHoverEffect = ({
         <motion.radialGradient
           id={maskId}
           gradientUnits="userSpaceOnUse"
-          r="50%"
+          r="80%"
           initial={{ cx: "50%", cy: "50%" }}
           animate={maskPosition}
           transition={{ duration: duration ?? 0, ease: "easeOut" }}
@@ -91,8 +106,8 @@ export const TextHoverEffect = ({
         y="50%"
         textAnchor="middle"
         dominantBaseline="middle"
-        strokeWidth="0.3"
-        className={`fill-transparent stroke-neutral-200 font-[helvetica] ${textSize} font-bold dark:stroke-neutral-800`}
+        strokeWidth="0.5"
+        className={`fill-transparent stroke-white/80 font-[helvetica] ${textSize} font-bold`}
         style={{ opacity: hovered ? 0.7 : 0 }}
       >
         {text}
@@ -102,8 +117,8 @@ export const TextHoverEffect = ({
         y="50%"
         textAnchor="middle"
         dominantBaseline="middle"
-        strokeWidth="0.3"
-        className={`fill-transparent stroke-neutral-200 font-[helvetica] ${textSize} font-bold dark:stroke-neutral-800`}
+        strokeWidth="0.5"
+        className={`fill-transparent stroke-white/80 font-[helvetica] ${textSize} font-bold`}
         initial={{ strokeDashoffset: 1000, strokeDasharray: 1000 }}
         animate={{
           strokeDashoffset: 0,
@@ -122,7 +137,7 @@ export const TextHoverEffect = ({
         textAnchor="middle"
         dominantBaseline="middle"
         stroke={`url(#${gradientId})`}
-        strokeWidth="0.3"
+        strokeWidth="0.5"
         mask={`url(#${textMaskId})`}
         className={`fill-transparent font-[helvetica] ${textSize} font-bold`}
       >

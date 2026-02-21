@@ -1,6 +1,7 @@
 "use client";
 import { motion, useInView } from "motion/react";
 import { useRef } from "react";
+import { CornerFrame } from "@/components/ui/corner-frame";
 
 const variants = [
   { name: "acme", color: "#06b6d4", features: "dark mode · 500 users · custom brand" },
@@ -14,7 +15,7 @@ export function Possibilities() {
   const isInView = useInView(ref, { once: true, margin: "-100px" });
 
   return (
-    <section className="relative py-32 overflow-hidden" ref={ref}>
+    <section className="relative py-20 overflow-hidden" ref={ref}>
       <div className="absolute inset-0 bg-grid opacity-30" />
       <div className="absolute inset-0 bg-radial-fade" />
 
@@ -23,9 +24,9 @@ export function Possibilities() {
           initial={{ opacity: 0, y: 30 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
-          className="text-center mb-20"
+          className="text-center mb-14"
         >
-          <span className="font-code text-sm font-medium text-cyan-400/80 tracking-wider uppercase">
+          <span className="font-code text-sm font-medium text-[#1a1ab0] tracking-wider uppercase">
             What you can build
           </span>
           <h2 className="mt-4 font-display text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl">
@@ -44,15 +45,16 @@ export function Possibilities() {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
             transition={{ duration: 0.5, delay: 0.2 }}
-            className="relative z-10 flex items-center gap-3 rounded-[3px] border border-white/[0.1] bg-white/[0.04] px-6 py-3 backdrop-blur-sm"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-[3px] bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-white/[0.1]">
-              <span className="font-code text-xs font-bold text-white">B</span>
-            </div>
-            <div>
-              <div className="font-display text-sm font-bold text-zinc-100">base config</div>
-              <div className="font-code text-[11px] text-zinc-600">config/features.json</div>
-            </div>
+            <CornerFrame lines className="relative z-10 flex items-center gap-3 rounded-[3px] border border-white/[0.1] bg-white/[0.04] px-6 py-3 backdrop-blur-sm">
+              <div className="flex h-8 w-8 items-center justify-center rounded-[3px] bg-[#1a1ab0]/15 border border-white/[0.1]">
+                <span className="font-code text-xs font-bold text-white">B</span>
+              </div>
+              <div>
+                <div className="font-display text-sm font-bold text-zinc-100">base config</div>
+                <div className="font-code text-[11px] text-zinc-600">config/features.json</div>
+              </div>
+            </CornerFrame>
           </motion.div>
 
           {/* Connecting lines */}

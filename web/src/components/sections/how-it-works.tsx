@@ -16,7 +16,7 @@ const timelineData = [
           Declare your config surfaces
         </h4>
         <p className="mt-2 text-sm text-zinc-500 leading-relaxed max-w-lg">
-          A <code className="text-cyan-400 font-code text-xs">.variantform.yaml</code> file
+          A <code className="text-[#1a1ab0] font-code text-xs">.variantform.yaml</code> file
           at your project root declares which config files can be customized
           and how they should be merged.
         </p>
@@ -51,7 +51,7 @@ surfaces:
         </h4>
         <p className="mt-2 text-sm text-zinc-500 leading-relaxed max-w-lg">
           Each variant gets its own directory under{" "}
-          <code className="text-cyan-400 font-code text-xs">variants/</code>.
+          <code className="text-[#1a1ab0] font-code text-xs">variants/</code>.
           Only store the differences — not full copies. This is the overlay model.
         </p>
         {codeBlock(
@@ -78,7 +78,7 @@ variants/acme/config/features.json
         </h4>
         <p className="mt-2 text-sm text-zinc-500 leading-relaxed max-w-lg">
           Overrides follow{" "}
-          <span className="text-violet-400">RFC 7396 JSON Merge Patch</span>.
+          <span className="text-zinc-300">RFC 7396 JSON Merge Patch</span>.
           Deep merge for objects, null to delete keys, arrays replaced entirely.
           Precise, deterministic, reviewable.
         </p>
@@ -137,7 +137,7 @@ variants/acme/config/features.json
 export function HowItWorks() {
   return (
     <section id="how-it-works" className="relative">
-      <div className="absolute inset-0 bg-gradient-to-b from-black via-zinc-950/50 to-black" />
+      <div className="absolute inset-0 bg-black" />
       <div className="relative">
         <Timeline
           data={timelineData}

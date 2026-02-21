@@ -2,6 +2,7 @@
 import { motion, useInView } from "motion/react";
 import { useRef } from "react";
 import { BackgroundBeams } from "@/components/ui/background-beams";
+import { CornerFrame } from "@/components/ui/corner-frame";
 
 export function GetStarted() {
   const ref = useRef(null);
@@ -21,7 +22,7 @@ export function GetStarted() {
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
         >
-          <span className="font-code text-sm font-medium text-emerald-400/80 tracking-wider uppercase">
+          <span className="font-code text-sm font-medium text-[#1a1ab0] tracking-wider uppercase">
             Quick start
           </span>
           <h2 className="mt-4 font-display text-3xl font-extrabold tracking-tight sm:text-4xl">
@@ -57,22 +58,21 @@ export function GetStarted() {
               cmd: "variantform resolve acme",
             },
           ].map((item) => (
-            <div
-              key={item.step}
-              className="group rounded-[3px] border border-white/[0.06] bg-white/[0.02] p-6 text-left transition-all hover:border-white/[0.12] hover:bg-white/[0.04]"
-            >
-              <span className="font-code text-xs font-bold text-cyan-400/60">
-                {item.step}
-              </span>
-              <h3 className="mt-2 font-display text-base font-bold text-zinc-100">
-                {item.title}
-              </h3>
-              <p className="mt-1 text-sm text-zinc-500">{item.desc}</p>
-              <div className="mt-3 rounded-md bg-black/50 px-3 py-2 font-code text-[11px] text-zinc-600">
-                <span className="text-cyan-400/40">$ </span>
-                {item.cmd}
+            <CornerFrame key={item.step}>
+              <div className="group rounded-[3px] border border-white/[0.06] bg-white/[0.02] p-6 text-left transition-all hover:border-white/[0.12] hover:bg-white/[0.04]">
+                <span className="font-code text-xs font-bold text-[#1a1ab0]/60">
+                  {item.step}
+                </span>
+                <h3 className="mt-2 font-display text-base font-bold text-zinc-100">
+                  {item.title}
+                </h3>
+                <p className="mt-1 text-sm text-zinc-500">{item.desc}</p>
+                <div className="mt-3 rounded-md bg-black/50 px-3 py-2 font-code text-[11px] text-zinc-600">
+                  <span className="text-[#1a1ab0]/40">$ </span>
+                  {item.cmd}
+                </div>
               </div>
-            </div>
+            </CornerFrame>
           ))}
         </motion.div>
 

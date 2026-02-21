@@ -25,16 +25,9 @@ export function Navigation() {
       <NavBody>
         <a
           href="#"
-          className="relative z-20 flex items-center gap-2.5 px-2 py-1 text-sm font-bold text-white"
+          className="relative z-20 px-2 py-1 font-[helvetica] text-sm font-bold tracking-widest text-white"
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-[3px] bg-gradient-to-br from-cyan-400 to-violet-500">
-            <span className="font-display text-xs font-extrabold text-white">
-              V
-            </span>
-          </div>
-          <span className="font-display text-base tracking-tight">
-            variantform
-          </span>
+          VARIANTFORM
         </a>
         <NavItems items={navItems} />
         <div className="flex items-center gap-3">
@@ -54,14 +47,9 @@ export function Navigation() {
         <MobileNavHeader>
           <a
             href="#"
-            className="flex items-center gap-2 text-sm font-bold text-white"
+            className="font-[helvetica] text-sm font-bold tracking-widest text-white"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-[3px] bg-gradient-to-br from-cyan-400 to-violet-500">
-              <span className="font-display text-xs font-extrabold text-white">
-                V
-              </span>
-            </div>
-            variantform
+            VARIANTFORM
           </a>
           <MobileNavToggle
             isOpen={isMobileMenuOpen}

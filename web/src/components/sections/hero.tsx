@@ -2,6 +2,7 @@
 import { motion } from "motion/react";
 import { TextHoverEffect } from "@/components/ui/text-hover-effect";
 import { Terminal } from "@/components/terminal";
+import { CornerFrame } from "@/components/ui/corner-frame";
 import { useState } from "react";
 
 const heroTerminalLines = [
@@ -14,9 +15,9 @@ const heroTerminalLines = [
   { text: "", type: "empty" as const },
   { text: "npx variantform resolve acme", type: "command" as const },
   { text: "\u2713 Resolved 3 files for variant acme", type: "output" as const, color: "#28c840" },
-  { text: "  \u2192 config/features.json", type: "output" as const, color: "#06b6d4" },
-  { text: "  \u2192 config/theme.json", type: "output" as const, color: "#06b6d4" },
-  { text: "  \u2192 config/branding.yaml", type: "output" as const, color: "#06b6d4" },
+  { text: "  \u2192 config/features.json", type: "output" as const, color: "#1a1ab0" },
+  { text: "  \u2192 config/theme.json", type: "output" as const, color: "#1a1ab0" },
+  { text: "  \u2192 config/branding.yaml", type: "output" as const, color: "#1a1ab0" },
 ];
 
 export function Hero() {
@@ -37,35 +38,38 @@ export function Hero() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 1 }}
-          className="w-full max-w-5xl h-[10rem] sm:h-[12rem] md:h-[14rem]"
+          className="w-full max-w-7xl h-[16rem] sm:h-[20rem] md:h-[24rem]"
         >
-          <TextHoverEffect text="VARIANTFORM" duration={0.3} textSize="text-6xl" />
+          <TextHoverEffect text="VARIANTFORM" duration={0.3} textSize="text-7xl" />
         </motion.div>
 
-        {/* npm install — right beneath, semi-transparent bg */}
+        {/* npm install — pushed down for breathing room */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.5 }}
+          className="mt-16"
         >
-          <button
-            onClick={handleCopy}
-            className="group relative mx-auto flex items-center gap-3 rounded-[3px] border border-white/[0.08] bg-black/80 px-6 py-4 font-code text-sm backdrop-blur-sm transition-all hover:border-white/[0.15] hover:bg-white/[0.03]"
-          >
-            <span className="text-cyan-400 select-none">$</span>
-            <span className="text-zinc-300">npm install -g variantform</span>
-            <span className="ml-4 text-zinc-600 transition-colors group-hover:text-zinc-400">
-              {copied ? (
-                <svg className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-              )}
-            </span>
-          </button>
+          <CornerFrame lines className="mt-4">
+            <button
+              onClick={handleCopy}
+              className="group relative mx-auto flex items-center gap-3 rounded-[3px] border border-[#1a1ab0]/20 bg-black/80 px-8 py-5 font-code text-base backdrop-blur-sm transition-all hover:border-[#1a1ab0]/40 hover:bg-white/[0.03]"
+            >
+              <span className="text-[#1a1ab0] select-none">$</span>
+              <span className="text-zinc-300">npm install -g variantform</span>
+              <span className="ml-4 text-zinc-600 transition-colors group-hover:text-zinc-400">
+                {copied ? (
+                  <svg className="h-4 w-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </span>
+            </button>
+          </CornerFrame>
           <p className="mt-2 text-center text-xs text-zinc-600">
             {copied ? "Copied!" : "Click to copy"}
           </p>

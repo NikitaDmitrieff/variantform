@@ -101,7 +101,7 @@ export function Terminal({
     <div
       ref={containerRef}
       className={cn(
-        "overflow-hidden rounded-md border border-white/[0.08] bg-[#0a0a0a] shadow-2xl shadow-cyan-500/[0.03]",
+        "overflow-hidden rounded-md border border-white/[0.08] bg-[#0a0a0a] shadow-2xl shadow-[#1a1ab0]/[0.03]",
         className
       )}
     >
@@ -117,7 +117,7 @@ export function Terminal({
         {visibleLines.map((line, i) => (
           <div key={i} className="whitespace-pre">
             {line.type === "command" && (
-              <span className="text-cyan-400 select-none">$ </span>
+              <span className="text-[#1a1ab0] select-none">$ </span>
             )}
             {line.type === "comment" && (
               <span className="text-zinc-600 select-none"># </span>
@@ -136,13 +136,13 @@ export function Terminal({
         ))}
         {showInitialCursor && (
           <div className="whitespace-pre">
-            <span className="text-cyan-400 select-none">$ </span>
+            <span className="text-[#1a1ab0] select-none">$ </span>
             <span className="animate-blink text-zinc-100">▋</span>
           </div>
         )}
         {isDone && (
           <div className="whitespace-pre">
-            <span className="text-cyan-400 select-none">$ </span>
+            <span className="text-[#1a1ab0] select-none">$ </span>
             <span className="animate-blink text-zinc-100">▋</span>
           </div>
         )}
