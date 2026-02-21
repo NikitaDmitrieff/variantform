@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Plus } from "lucide-react";
@@ -8,7 +8,7 @@ import { ProjectCard } from "@/components/dashboard/project-card";
 import { CreateProjectModal } from "@/components/dashboard/create-project-modal";
 import type { Project } from "@/lib/types";
 
-export default function DashboardPage() {
+function DashboardContent() {
   const supabase = useMemo(() => createClient(), []);
   const searchParams = useSearchParams();
   const installationId = searchParams.get("installation_id");
@@ -107,5 +107,23 @@ export default function DashboardPage() {
         onCreate={handleCreate}
       />
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-5xl">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="skeleton h-32" />
+            ))}
+          </div>
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }
