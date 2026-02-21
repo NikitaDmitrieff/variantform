@@ -3,11 +3,15 @@ import { join } from "node:path";
 import yaml from "js-yaml";
 import { validateSurfacePath } from "./paths.js";
 
+export type SurfaceFormat = "json" | "yaml" | "css" | "code" | "markdown" | "asset" | "template" | "text";
 export type MergeStrategy = "merge" | "replace";
+
+export const MERGEABLE_FORMATS: SurfaceFormat[] = ["json", "yaml"];
+export const VALID_FORMATS: SurfaceFormat[] = ["json", "yaml", "css", "code", "markdown", "asset", "template", "text"];
 
 export interface Surface {
   path: string;
-  format: "json" | "yaml";
+  format: SurfaceFormat;
   strategy: MergeStrategy;
 }
 
@@ -40,16 +44,26 @@ export async function loadConfig(repoPath: string): Promise<VariantformConfig> {
     // Security: reject traversal and absolute paths
     validateSurfacePath(surface.path as string);
 
-    if (!["json", "yaml"].includes(surface.format as string)) {
-      throw new Error(`Invalid format "${surface.format}". Must be "json" or "yaml".`);
+    if (!VALID_FORMATS.includes(surface.format as SurfaceFormat)) {
+      throw new Error(`Invalid format "${surface.format}". Must be one of: ${VALID_FORMATS.join(", ")}.`);
     }
-    const strategy = (surface.strategy as string) || "merge";
+
+    // Default strategy: merge for json/yaml, replace for everything else
+    const defaultStrategy = MERGEABLE_FORMATS.includes(surface.format as SurfaceFormat) ? "merge" : "replace";
+    const strategy = (surface.strategy as string) || defaultStrategy;
+
     if (!["merge", "replace"].includes(strategy)) {
       throw new Error(`Invalid strategy "${surface.strategy}". Must be "merge" or "replace".`);
     }
+
+    // Merge strategy only allowed for json/yaml
+    if (strategy === "merge" && !MERGEABLE_FORMATS.includes(surface.format as SurfaceFormat)) {
+      throw new Error(`Format "${surface.format}" does not support merge strategy. Use replace instead.`);
+    }
+
     return {
       path: surface.path,
-      format: surface.format as Surface["format"],
+      format: surface.format as SurfaceFormat,
       strategy: strategy as MergeStrategy,
     };
   });

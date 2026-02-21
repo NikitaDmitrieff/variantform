@@ -60,4 +60,119 @@ describe("loadConfig", () => {
     await project.writeFile(".variantform.yaml", "version: 1\n");
     await expect(loadConfig(project.path)).rejects.toThrow("surfaces");
   });
+
+  it("accepts css format with replace strategy", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "styles/brand.css"
+    format: css
+    strategy: replace
+`
+    );
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0]).toEqual({
+      path: "styles/brand.css",
+      format: "css",
+      strategy: "replace",
+    });
+  });
+
+  it("accepts code format with replace strategy", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "src/components/Hero.tsx"
+    format: code
+    strategy: replace
+`
+    );
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0].format).toBe("code");
+    expect(config.surfaces[0].strategy).toBe("replace");
+  });
+
+  it("accepts asset format", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "public/logo.svg"
+    format: asset
+    strategy: replace
+`
+    );
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0].format).toBe("asset");
+  });
+
+  it("accepts markdown format", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "content/landing.md"
+    format: markdown
+    strategy: replace
+`
+    );
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0].format).toBe("markdown");
+  });
+
+  it("accepts template format", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "templates/welcome.html"
+    format: template
+    strategy: replace
+`
+    );
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0].format).toBe("template");
+  });
+
+  it("accepts text format", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: ".env.example"
+    format: text
+    strategy: replace
+`
+    );
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0].format).toBe("text");
+  });
+
+  it("rejects merge strategy for non-json/yaml formats", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "styles/brand.css"
+    format: css
+    strategy: merge
+`
+    );
+    await expect(loadConfig(project.path)).rejects.toThrow("merge strategy");
+  });
+
+  it("defaults strategy to replace for non-json/yaml formats", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      `surfaces:
+  - path: "public/logo.svg"
+    format: asset
+`
+    );
+    const config = await loadConfig(project.path);
+    expect(config.surfaces[0].strategy).toBe("replace");
+  });
 });
