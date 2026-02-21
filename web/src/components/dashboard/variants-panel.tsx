@@ -2,24 +2,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { GitBranch, Trash2, Plus, Loader2 } from "lucide-react";
+import { GitBranch, Plus, Loader2 } from "lucide-react";
 import type { Variant } from "@/lib/types";
-import type { ValidationIssue } from "@/lib/validate";
 
 interface VariantsPanelProps {
   projectId: string;
   variants: Variant[];
-  validationMap: Record<string, ValidationIssue[]>;
   onAdd: (name: string) => Promise<void>;
-  onDelete: (id: string) => void;
 }
 
 export function VariantsPanel({
   projectId,
   variants,
-  validationMap,
   onAdd,
-  onDelete,
 }: VariantsPanelProps) {
   const [showInput, setShowInput] = useState(false);
   const [name, setName] = useState("");
@@ -52,53 +47,23 @@ export function VariantsPanel({
       </div>
 
       <div className="space-y-2">
-        {variants.map((v) => {
-          const issues = validationMap[v.id] ?? [];
-          const errors = issues.filter((i) => i.severity === "error").length;
-          const warnings = issues.filter((i) => i.severity === "warning").length;
-
-          return (
-            <Link
-              key={v.id}
-              href={`/dashboard/${projectId}/${v.id}`}
-              className="glass-card group flex items-center justify-between p-3 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <GitBranch className="h-4 w-4 shrink-0 text-accent" />
-                <div>
-                  <p className="text-xs font-medium text-fg">{v.name}</p>
-                  <p className="mt-0.5 text-[11px] text-muted">
-                    {v.override_count ?? 0} overrides
-                  </p>
-                </div>
+        {variants.map((v) => (
+          <Link
+            key={v.name}
+            href={`/dashboard/${projectId}/${encodeURIComponent(v.name)}`}
+            className="glass-card group flex items-center justify-between p-3 transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <GitBranch className="h-4 w-4 shrink-0 text-accent" />
+              <div>
+                <p className="text-xs font-medium text-fg">{v.name}</p>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {v.override_count} overrides
+                </p>
               </div>
-
-              <div className="flex items-center gap-2">
-                {/* Validation badge */}
-                {errors > 0 ? (
-                  <span className="status-badge status-error">{errors} errors</span>
-                ) : warnings > 0 ? (
-                  <span className="status-badge status-warning">
-                    {warnings} warnings
-                  </span>
-                ) : issues.length === 0 && (v.override_count ?? 0) > 0 ? (
-                  <span className="status-badge status-valid">Valid</span>
-                ) : null}
-
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onDelete(v.id);
-                  }}
-                  className="rounded-lg p-1.5 text-muted opacity-0 transition-all hover:bg-white/[0.06] hover:text-danger group-hover:opacity-100"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </div>
-            </Link>
-          );
-        })}
+            </div>
+          </Link>
+        ))}
 
         {variants.length === 0 && !showInput && (
           <p className="py-4 text-center text-xs text-muted">
