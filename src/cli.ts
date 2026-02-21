@@ -151,6 +151,8 @@ program
           ? chalk.yellow("STALE")
           : issue.type === "parse_error"
           ? chalk.red("ERROR")
+          : issue.type === "empty_file"
+          ? chalk.yellow("EMPTY")
           : chalk.red("EXTRA");
         console.log(`  ${prefix} [${issue.variant}] ${issue.message}`);
       }

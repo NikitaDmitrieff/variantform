@@ -128,4 +128,45 @@ describe("validate command", () => {
 
     expect(issues.some((i) => i.type === "extraneous_file")).toBe(true);
   });
+
+  it("validates replace-strategy files exist and are not empty", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "styles/brand.css"\n    format: css\n    strategy: replace\n'
+    );
+    await project.writeFile("styles/brand.css", ":root { --color: blue; }");
+    await project.writeFile("variants/acme/styles/brand.css", "");
+
+    const issues = await runValidate(project.path);
+    expect(issues).toContainEqual(
+      expect.objectContaining({ type: "empty_file", variant: "acme" })
+    );
+  });
+
+  it("passes validation for valid replace-strategy override files", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "styles/brand.css"\n    format: css\n    strategy: replace\n'
+    );
+    await project.writeFile("styles/brand.css", ":root { --color: blue; }");
+    await project.writeFile("variants/acme/styles/brand.css", ":root { --color: red; }");
+
+    const issues = await runValidate(project.path);
+    expect(issues).toHaveLength(0);
+  });
+
+  it("skips parse validation for non-json/yaml formats", async () => {
+    project = await createTestProject();
+    await project.writeFile(
+      ".variantform.yaml",
+      'surfaces:\n  - path: "src/Hero.tsx"\n    format: code\n    strategy: replace\n'
+    );
+    await project.writeFile("src/Hero.tsx", "export default function Hero() { return <div/>; }");
+    await project.writeFile("variants/acme/src/Hero.tsx", "export default function Hero() { return <h1>Acme</h1>; }");
+
+    const issues = await runValidate(project.path);
+    expect(issues).toHaveLength(0);
+  });
 });

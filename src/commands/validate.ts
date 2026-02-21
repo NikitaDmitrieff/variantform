@@ -2,12 +2,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import fg from "fast-glob";
-import { loadConfig } from "../config.js";
+import { loadConfig, MERGEABLE_FORMATS } from "../config.js";
 import { isObject } from "../merge.js";
 import { matchesPattern } from "../match.js";
 
 export interface ValidationIssue {
-  type: "stale_key" | "parse_error" | "extraneous_file" | "invalid_shape";
+  type: "stale_key" | "parse_error" | "extraneous_file" | "invalid_shape" | "empty_file";
   variant: string;
   surface?: string;
   key?: string;
@@ -51,6 +51,20 @@ export async function runValidate(projectPath: string): Promise<ValidationIssue[
       // Validate the override file
       const overridePath = join(variantDir, file);
       const basePath = join(projectPath, file);
+
+      // Non-parseable formats: just check file is not empty
+      if (!MERGEABLE_FORMATS.includes(matchingSurface.format)) {
+        const content = await readFile(overridePath, "utf-8");
+        if (content.trim().length === 0) {
+          issues.push({
+            type: "empty_file",
+            variant,
+            surface: file,
+            message: `Override "${file}" in variant "${variant}" is empty`,
+          });
+        }
+        continue;
+      }
 
       if (matchingSurface.strategy === "merge") {
         let parsed: unknown;
